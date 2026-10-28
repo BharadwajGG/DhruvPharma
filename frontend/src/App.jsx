@@ -1,4 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import { AdminRoute, PrescriptionQueueRoute } from './components/ProtectedRoute'
+
+// Customer Components
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import HomePage from './pages/HomePage'
@@ -8,6 +12,14 @@ import PrescriptionPage from './pages/PrescriptionPage'
 import CartPage from './pages/CartPage'
 import OrderTrackingPage from './pages/OrderTrackingPage'
 import ContactPage from './pages/ContactPage'
+
+// Authentication & Operations Portals
+import UserLoginPage from './pages/UserLoginPage'
+import AdminLoginPage from './pages/AdminLoginPage'
+import PrescriptionQueueLoginPage from './pages/PrescriptionQueueLoginPage'
+import PrescriptionQueuePage from './pages/PrescriptionQueuePage'
+
+// Admin Protected Views
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminPrescriptions from './pages/admin/AdminPrescriptions'
 import AdminOrders from './pages/admin/AdminOrders'
@@ -27,26 +39,71 @@ function CustomerLayout() {
 
 function App() {
     return (
-        <Router>
-            <Routes>
-                {/* ── Admin Routes (Dedicated Admin Sidebar & Header) ── */}
-                <Route path="/admin" element={<AdminDashboard />} />
-                <Route path="/admin/prescriptions" element={<AdminPrescriptions />} />
-                <Route path="/admin/orders" element={<AdminOrders />} />
-                <Route path="/admin/inventory" element={<AdminInventory />} />
+        <AuthProvider>
+            <Router>
+                <Routes>
+                    {/* ── Public Authentication Pages ── */}
+                    <Route path="/login" element={<UserLoginPage />} />
+                    <Route path="/admin/login" element={<AdminLoginPage />} />
+                    <Route path="/prescription-queue/login" element={<PrescriptionQueueLoginPage />} />
 
-                {/* ── Customer Storefront Routes (with Navbar & Footer) ── */}
-                <Route element={<CustomerLayout />}>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/medicines" element={<MedicineStorePage />} />
-                    <Route path="/medicines/:id" element={<MedicineDetailPage />} />
-                    <Route path="/prescription" element={<PrescriptionPage />} />
-                    <Route path="/cart" element={<CartPage />} />
-                    <Route path="/track-order" element={<OrderTrackingPage />} />
-                    <Route path="/contact" element={<ContactPage />} />
-                </Route>
-            </Routes>
-        </Router>
+                    {/* ── Protected Prescription Queue Route (Authenticated Queue Users) ── */}
+                    <Route
+                        path="/prescription-queue"
+                        element={
+                            <PrescriptionQueueRoute>
+                                <PrescriptionQueuePage />
+                            </PrescriptionQueueRoute>
+                        }
+                    />
+
+                    {/* ── Protected Admin Routes (Strict Admin-Only Custom Claim) ── */}
+                    <Route
+                        path="/admin"
+                        element={
+                            <AdminRoute>
+                                <AdminDashboard />
+                            </AdminRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/prescriptions"
+                        element={
+                            <AdminRoute>
+                                <AdminPrescriptions />
+                            </AdminRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/orders"
+                        element={
+                            <AdminRoute>
+                                <AdminOrders />
+                            </AdminRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/inventory"
+                        element={
+                            <AdminRoute>
+                                <AdminInventory />
+                            </AdminRoute>
+                        }
+                    />
+
+                    {/* ── Customer Storefront Routes (with Navbar & Footer) ── */}
+                    <Route element={<CustomerLayout />}>
+                        <Route path="/" element={<HomePage />} />
+                        <Route path="/medicines" element={<MedicineStorePage />} />
+                        <Route path="/medicines/:id" element={<MedicineDetailPage />} />
+                        <Route path="/prescription" element={<PrescriptionPage />} />
+                        <Route path="/cart" element={<CartPage />} />
+                        <Route path="/track-order" element={<OrderTrackingPage />} />
+                        <Route path="/contact" element={<ContactPage />} />
+                    </Route>
+                </Routes>
+            </Router>
+        </AuthProvider>
     )
 }
 

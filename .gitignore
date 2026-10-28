@@ -1,0 +1,11 @@
+# Node
+node_modules
+*.log
+
+# Secrets & Environment
+.env
+.env*.local
+*.local
+serviceAccountKey.json
+service-account*.json
+
