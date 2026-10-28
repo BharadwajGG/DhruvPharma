@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* =============================================
+   DHRUV PHARMA — Global Styles
+   ============================================= */
+
+@layer base {
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f8fafc;
+        color: #1e293b;
+        line-height: 1.6;
+    }
+}
+
+@layer utilities {
+    /* Custom scrollbar */
+    .scrollbar-thin::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-track {
+        background: #f1f5f9;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+        background: #94a3b8;
+        border-radius: 9999px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+    }
+}
