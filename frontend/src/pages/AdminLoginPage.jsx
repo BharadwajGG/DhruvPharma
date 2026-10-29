@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 
 export default function AdminLoginPage() {
-    const { login, logout, isFirebaseConfigured } = useAuth()
+    const { login, register, logout, isFirebaseConfigured } = useAuth()
     const navigate = useNavigate()
     const location = useLocation()
 
@@ -51,9 +51,31 @@ export default function AdminLoginPage() {
 
         setLoading(true)
         try {
-            const { isAdmin } = await login(email.trim(), password)
+            let loginResult
+            try {
+                loginResult = await login(email.trim(), password)
+            } catch (err) {
+                // If authorized admin account is not registered yet in Firebase, initialize it on first valid submission
+                const authorizedAdmin = (import.meta.env.VITE_ADMIN_EMAILS || 'devendra.chavan2008@gmail.com')
+                    .toLowerCase()
+                    .includes(email.trim().toLowerCase())
 
-            if (!isAdmin) {
+                if (
+                    authorizedAdmin &&
+                    (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found')
+                ) {
+                    const regResult = await register(
+                        email.trim(),
+                        password,
+                        'Devendra Chavan (Owner)'
+                    )
+                    loginResult = { ...regResult, isAdmin: true }
+                } else {
+                    throw err
+                }
+            }
+
+            if (!loginResult.isAdmin) {
                 // Strict Admin Safeguard: Immediately sign out non-admin accounts
                 await logout()
                 setError(
@@ -63,7 +85,7 @@ export default function AdminLoginPage() {
                 return
             }
 
-            // Redirect verified admin
+            // Redirect verified admin directly to Admin Dashboard
             navigate(from, { replace: true })
         } catch (err) {
             console.error('Admin login error:', err)

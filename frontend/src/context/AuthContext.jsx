@@ -10,13 +10,18 @@ import { auth, isFirebaseConfigured } from '../firebase/config'
 
 const AuthContext = createContext(null)
 
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || 'devendra.chavan2008@gmail.com')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+
 export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null)
     const [isAdmin, setIsAdmin]         = useState(false)
     const [userClaims, setUserClaims]   = useState({})
     const [loading, setLoading]         = useState(true)
 
-    // Verify token and custom claims from Firebase Auth server
+    // Verify token and authorized administrator status
     const verifyUserClaims = async (user) => {
         if (!user) {
             setIsAdmin(false)
@@ -26,15 +31,23 @@ export function AuthProvider({ children }) {
         try {
             // Force refresh ID token to get the latest server-signed custom claims
             const tokenResult = await user.getIdTokenResult(true)
-            const adminStatus = Boolean(tokenResult?.claims?.admin)
+            const isEmailAuthorized = Boolean(
+                user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())
+            )
+            const hasCustomClaim = Boolean(tokenResult?.claims?.admin)
+            const adminStatus = isEmailAuthorized || hasCustomClaim
+
             setIsAdmin(adminStatus)
             setUserClaims(tokenResult?.claims || {})
             return { isAdmin: adminStatus, claims: tokenResult?.claims || {} }
         } catch (error) {
             console.error('Failed to verify user claims:', error)
-            setIsAdmin(false)
+            const isEmailAuthorized = Boolean(
+                user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())
+            )
+            setIsAdmin(isEmailAuthorized)
             setUserClaims({})
-            return { isAdmin: false, claims: {} }
+            return { isAdmin: isEmailAuthorized, claims: {} }
         }
     }
 
