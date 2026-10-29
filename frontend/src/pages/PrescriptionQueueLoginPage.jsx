@@ -381,11 +381,11 @@ export default function PrescriptionQueueLoginPage() {
                             Prescription Queue access is monitored. Public registration does not grant administrative privileges.
                         </p>
                         <Link
-                            to="/cart"
+                            to="/"
                             className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
                         >
                             <ArrowLeft size={13} />
-                            Back to Add to Cart / Store
+                            Back to Home
                         </Link>
                     </div>
                 </div>

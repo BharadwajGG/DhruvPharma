@@ -244,11 +244,11 @@ export default function AdminLoginPage() {
                             Protected by Firebase Authentication &amp; Server-Verified Custom Claims.
                         </p>
                         <Link
-                            to="/cart"
+                            to="/"
                             className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 font-medium transition-colors"
                         >
                             <ArrowLeft size={13} />
-                            Back to Add to Cart / Store
+                            Back to Home
                         </Link>
                     </div>
                 </div>
