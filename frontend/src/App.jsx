@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { CartProvider } from './context/CartContext'
 import { AdminRoute, PrescriptionQueueRoute } from './components/ProtectedRoute'
 
 // Customer Components
@@ -10,6 +11,7 @@ import MedicineStorePage from './pages/MedicineStorePage'
 import MedicineDetailPage from './pages/MedicineDetailPage'
 import PrescriptionPage from './pages/PrescriptionPage'
 import CartPage from './pages/CartPage'
+import MyOrdersPage from './pages/MyOrdersPage'
 import OrderTrackingPage from './pages/OrderTrackingPage'
 import ContactPage from './pages/ContactPage'
 
@@ -40,8 +42,9 @@ function CustomerLayout() {
 function App() {
     return (
         <AuthProvider>
-            <Router>
-                <Routes>
+            <CartProvider>
+                <Router>
+                    <Routes>
                     {/* ── Public Authentication Pages ── */}
                     <Route path="/login" element={<UserLoginPage />} />
                     <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -98,11 +101,13 @@ function App() {
                         <Route path="/medicines/:id" element={<MedicineDetailPage />} />
                         <Route path="/prescription" element={<PrescriptionPage />} />
                         <Route path="/cart" element={<CartPage />} />
+                        <Route path="/my-orders" element={<MyOrdersPage />} />
                         <Route path="/track-order" element={<OrderTrackingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
                     </Route>
                 </Routes>
             </Router>
+            </CartProvider>
         </AuthProvider>
     )
 }

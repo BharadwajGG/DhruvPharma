@@ -5,33 +5,42 @@ import csv
 import json
 import shutil
 import uuid
+import asyncio
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from database import init_db, get_db, PrescriptionModel, MedicineModel
+from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel
 from categorizer import categorize_medicine, calculate_selling_price, clean_text
+from notifications import (
+    generate_clinical_info,
+    generate_order_email_html,
+    generate_whatsapp_message,
+    send_order_email,
+)
 
 # Ensure upload folders exist
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 PRESCRIPTIONS_DIR = os.path.join(UPLOADS_DIR, "prescriptions")
+ORDERS_PRESCRIPTIONS_DIR = os.path.join(UPLOADS_DIR, "order_prescriptions")
 os.makedirs(PRESCRIPTIONS_DIR, exist_ok=True)
+os.makedirs(ORDERS_PRESCRIPTIONS_DIR, exist_ok=True)
 
 # Initialize database
 init_db()
 
 app = FastAPI(
     title="Dhruv Pharma Backend API",
-    description="Backend API for DhruvPharma: inventory categorization, staging catalog, live patient store, and prescription uploads.",
-    version="2.0.0",
+    description="Backend API for DhruvPharma: inventory categorization, real-time orders, dynamic medicines, and prescription uploads.",
+    version="2.1.0",
 )
 
 # Enable CORS for React frontend
@@ -51,19 +60,308 @@ app.add_middleware(
 # Mount uploads static folder so frontend can view/download uploaded photos & PDFs
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
+# Real-Time Server-Sent Events (SSE) Client Queues for Live Admin Dashboard
+sse_clients: List[asyncio.Queue] = []
+
+
+async def broadcast_order_event(event_type: str, data: dict):
+    """Pushes a live event to all connected admin browser tabs."""
+    message = json.dumps({"type": event_type, "order": data, "timestamp": datetime.utcnow().isoformat()})
+    disconnected = []
+    for queue in sse_clients:
+        try:
+            await queue.put(message)
+        except Exception:
+            disconnected.append(queue)
+    for q in disconnected:
+        if q in sse_clients:
+            sse_clients.remove(q)
+
 
 @app.get("/api/health")
 def health_check():
     return {
         "status": "healthy",
         "service": "Dhruv Pharma Backend API",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "timestamp": datetime.utcnow().isoformat(),
     }
 
 
 # ==============================================================================
-# 1. PRESCRIPTION WORKFLOW ENDPOINTS
+# 1. REAL-TIME ORDERS PIPELINE (/api/orders)
+# ==============================================================================
+
+@app.get("/api/orders/stream")
+async def orders_stream():
+    """
+    Server-Sent Events (SSE) endpoint for Admin Orders.
+    Pushes real-time events when new orders arrive or status changes occur.
+    """
+    queue = asyncio.Queue()
+    sse_clients.append(queue)
+
+    async def event_generator():
+        try:
+            # Initial connection acknowledgement ping
+            yield "event: connected\ndata: {\"status\":\"listening\"}\n\n"
+            while True:
+                # Wait for broadcasted order event or send heartbeat
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=25.0)
+                    yield f"data: {data}\n\n"
+                except asyncio.TimeoutError:
+                    # Keep-alive heartbeat
+                    yield ": heartbeat\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if queue in sse_clients:
+                sse_clients.remove(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/orders")
+async def place_order(
+    customerName: str = Form(...),
+    phone: str = Form(...),
+    email: Optional[str] = Form(""),
+    userId: Optional[str] = Form(""),
+    district: str = Form(...),
+    address: str = Form(...),
+    pincode: Optional[str] = Form(""),
+    items: str = Form(...),  # JSON string of cart items
+    subtotal: float = Form(0.0),
+    discount: float = Form(0.0),
+    deliveryFee: float = Form(0.0),
+    totalAmount: float = Form(...),
+    paymentMethod: Optional[str] = Form("COD"),
+    notes: Optional[str] = Form(""),
+    prescriptionFile: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Direct storefront order placement.
+    Atomically saves order, decrements stock in catalog, triggers notifications,
+    and broadcasts instant event to the live admin dashboard via SSE.
+    """
+    try:
+        parsed_items = json.loads(items) if isinstance(items, str) else items
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid items payload format.")
+
+    if not parsed_items or len(parsed_items) == 0:
+        raise HTTPException(status_code=400, detail="Cart cannot be empty.")
+
+    # Handle prescription file upload if provided
+    prescription_url = ""
+    if prescriptionFile and prescriptionFile.filename:
+        timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original_name = os.path.basename(prescriptionFile.filename)
+        unique_filename = f"rx_order_{timestamp_prefix}_{uuid.uuid4().hex[:6]}_{original_name}"
+        destination_path = os.path.join(ORDERS_PRESCRIPTIONS_DIR, unique_filename)
+
+        with open(destination_path, "wb") as buffer:
+            shutil.copyfileobj(prescriptionFile.file, buffer)
+
+        prescription_url = f"/uploads/order_prescriptions/{unique_filename}"
+
+    # Generate collision-proof sequential Order ID
+    max_order = db.query(OrderModel).order_by(OrderModel.id.desc()).first()
+    next_num = (max_order.id + 140) if max_order else 101
+    while db.query(OrderModel).filter(OrderModel.order_id == f"DP-{next_num}").first():
+        next_num += 1
+    order_id = f"DP-{next_num}"
+
+    # Decrement medicine stock in catalog
+    for item in parsed_items:
+        med_id = item.get("id")
+        qty = item.get("qty", 1)
+        if med_id:
+            med = db.query(MedicineModel).filter(MedicineModel.id == med_id).first()
+            if med and med.stock_quantity is not None:
+                med.stock_quantity = max(0, med.stock_quantity - qty)
+
+    # Determine initial status
+    initial_status = "pending"
+    if prescription_url:
+        initial_status = "pending"  # requires prescription verification
+
+    new_order = OrderModel(
+        order_id=order_id,
+        customer_name=customerName.strip(),
+        customer_phone=phone.strip(),
+        customer_email=(email or "").strip(),
+        user_id=(userId or "").strip(),
+        district=district.strip(),
+        address=address.strip(),
+        pincode=(pincode or "").strip(),
+        items=json.dumps(parsed_items),
+        subtotal=float(subtotal),
+        discount=float(discount),
+        delivery_fee=float(deliveryFee),
+        total_amount=float(totalAmount),
+        payment_method=paymentMethod or "COD",
+        payment_status="paid" if paymentMethod == "UPI" else "pending",
+        prescription_file=prescription_url,
+        status=initial_status,
+        expected_delivery="Expected in 2–4 hours",
+        delivery_agent="Sanjay Kumar (Dhruv Express)",
+        notes=(notes or "").strip(),
+        created_at=datetime.now(),
+    )
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+
+    order_dict = new_order.to_dict()
+
+    # Generate multi-channel notification payloads
+    email_html = generate_order_email_html(order_dict)
+    whatsapp_text = generate_whatsapp_message(order_dict)
+    send_order_email(order_dict)
+
+    # Broadcast real-time event to Admin Hub
+    await broadcast_order_event("new_order", order_dict)
+
+    return {
+        "success": True,
+        "message": f"Order #{order_id} placed successfully!",
+        "order": order_dict,
+        "whatsappMessage": whatsapp_text,
+        "emailReceiptPreview": email_html,
+    }
+
+
+@app.get("/api/orders")
+def get_all_orders(
+    status: Optional[str] = Query("all"),
+    search: Optional[str] = Query(None),
+    userId: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Returns list of orders for Admin hub or scoped strictly for a customer."""
+    query = db.query(OrderModel).order_by(OrderModel.id.desc())
+
+    # Per-user isolation filter
+    target_uid = (user_id or userId or "").strip()
+    if target_uid:
+        query = query.filter(OrderModel.user_id == target_uid)
+    elif email and email.strip():
+        query = query.filter(OrderModel.customer_email.ilike(email.strip()))
+
+    if status and status != "all":
+        query = query.filter(OrderModel.status == status.lower())
+
+    if search:
+        search_filter = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                OrderModel.order_id.ilike(search_filter),
+                OrderModel.customer_name.ilike(search_filter),
+                OrderModel.customer_phone.ilike(search_filter),
+                OrderModel.district.ilike(search_filter),
+            )
+        )
+
+    orders = query.all()
+    return [o.to_dict() for o in orders]
+
+
+@app.get("/api/orders/{order_id}")
+def get_order_detail(order_id: str, db: Session = Depends(get_db)):
+    """Returns detail for single order."""
+    order = (
+        db.query(OrderModel)
+        .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order.to_dict()
+
+
+class OrderStatusUpdateRequest(BaseModel):
+    status: Optional[str] = None
+    delivery_agent: Optional[str] = None
+    expected_delivery: Optional[str] = None
+
+
+@app.patch("/api/orders/{order_id}/status")
+async def update_order_status(
+    order_id: str,
+    payload: OrderStatusUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """Updates order status, delivery agent, and expected delivery time; broadcasts real-time update."""
+    order = (
+        db.query(OrderModel)
+        .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if payload.status:
+        valid_statuses = ["pending", "confirmed", "dispatched", "delivered", "cancelled"]
+        status_lower = payload.status.lower()
+        if status_lower not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {payload.status}")
+        order.status = status_lower
+
+    if payload.delivery_agent is not None:
+        order.delivery_agent = payload.delivery_agent.strip()
+
+    if payload.expected_delivery is not None:
+        order.expected_delivery = payload.expected_delivery.strip()
+
+    db.commit()
+    db.refresh(order)
+
+    order_dict = order.to_dict()
+
+    # Broadcast update event to all active customer and admin tabs
+    await broadcast_order_event("status_update", order_dict)
+
+    return {
+        "success": True,
+        "message": f"Order {order_id} updated",
+        "order": order_dict,
+    }
+
+
+@app.delete("/api/orders/{order_id}")
+async def delete_order(order_id: str, db: Session = Depends(get_db)):
+    """Permanently deletes an order and broadcasts the event via SSE."""
+    order = (
+        db.query(OrderModel)
+        .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    deleted_id = order.order_id
+    db.delete(order)
+    db.commit()
+
+    await broadcast_order_event("order_deleted", {"orderId": deleted_id, "id": deleted_id})
+    return {"success": True, "message": f"Order {deleted_id} deleted successfully."}
+
+
+# ==============================================================================
+# 2. PRESCRIPTION WORKFLOW ENDPOINTS
 # ==============================================================================
 
 @app.post("/api/prescriptions/upload")
@@ -176,7 +474,7 @@ def update_prescription_status(
 
 
 # ==============================================================================
-# 2. INVENTORY AUTO-CATEGORIZATION & STAGING WORKSPACE
+# 3. INVENTORY AUTO-CATEGORIZATION & STAGING WORKSPACE
 # ==============================================================================
 
 def normalize_header(h: str) -> str:
@@ -191,7 +489,6 @@ def find_column_index(headers: List[str], candidates: List[str]) -> Optional[int
         for idx, h in enumerate(clean_headers):
             if h == cand_clean:
                 return idx
-    # Substring fallback
     for cand in candidates:
         cand_clean = normalize_header(cand)
         for idx, h in enumerate(clean_headers):
@@ -202,7 +499,6 @@ def find_column_index(headers: List[str], candidates: List[str]) -> Optional[int
 
 @app.get("/api/inventory/sample-csv")
 def download_sample_csv():
-    """Provides a sample distributor CSV for testing the staging and auto-categorization system."""
     sample_path = os.path.join(BASE_DIR, "sample_distributor_inventory.csv")
     if not os.path.exists(sample_path):
         raise HTTPException(status_code=404, detail="Sample CSV not found")
@@ -218,17 +514,11 @@ async def upload_distributor_inventory(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """
-    Ingests raw distributor CSV file, runs intelligent auto-categorization,
-    calculates selling prices with margins, flags Schedule H prescriptions,
-    and inserts items into the Staging Queue (is_published = False).
-    """
     if not file.filename.lower().endswith((".csv", ".txt")):
         raise HTTPException(status_code=400, detail="Only CSV files (.csv) are currently supported.")
 
     content_bytes = await file.read()
 
-    # Try standard encodings commonly used by Indian billing & distributor software
     text_content = None
     for enc in ["utf-8-sig", "utf-8", "cp1252", "latin-1"]:
         try:
@@ -248,7 +538,6 @@ async def upload_distributor_inventory(
 
     headers = [h.strip() for h in rows[0]]
 
-    # Map distributor columns
     code_idx = find_column_index(headers, ["itemcode", "item_code", "code", "itemid", "item_id", "productcode", "itemno"])
     name_idx = find_column_index(headers, ["name", "itemname", "item_name", "product", "description", "medicinename"])
     company_idx = find_column_index(headers, ["company", "mfg", "manufacturer", "brand", "mfgby"])
@@ -263,7 +552,6 @@ async def upload_distributor_inventory(
             detail="Could not find medicine Name column in CSV. Found headers: " + ", ".join(headers),
         )
 
-    staged_items = []
     category_counts: Dict[str, int] = {}
     total_parsed = 0
     updated_count = 0
@@ -299,7 +587,6 @@ async def upload_distributor_inventory(
         )
         cleaned_salt = clean_text(raw_salt)
 
-        # Parse numeric values
         raw_mrp = 0.0
         if mrp_idx is not None and mrp_idx < len(row):
             try:
@@ -321,16 +608,13 @@ async def upload_distributor_inventory(
             except ValueError:
                 raw_stock = 10
 
-        # Run Auto-Categorization & Prescription Intelligence
         category, requires_rx = categorize_medicine(name=raw_name, salt=cleaned_salt)
         category_counts[category] = category_counts.get(category, 0) + 1
         if requires_rx:
             rx_flagged_count += 1
 
-        # Calculate Customer Selling Price with discount
         selling_price = calculate_selling_price(mrp=raw_mrp, cost_price=raw_rate, discount_pct=12.0)
 
-        # Check existing item by item_code
         existing = db.query(MedicineModel).filter(MedicineModel.item_code == raw_code).first()
 
         if existing:
@@ -343,9 +627,8 @@ async def upload_distributor_inventory(
             existing.selling_price = selling_price
             existing.stock_quantity = raw_stock
             existing.requires_prescription = requires_rx
-            existing.is_published = False  # Placed back into Staging for admin approval
+            existing.is_published = False
             updated_count += 1
-            staged_items.append(existing)
         else:
             new_item = MedicineModel(
                 item_code=raw_code,
@@ -359,11 +642,10 @@ async def upload_distributor_inventory(
                 stock_quantity=raw_stock,
                 min_stock=15,
                 requires_prescription=requires_rx,
-                is_published=False,  # Enters Staging first
+                is_published=False,
             )
             db.add(new_item)
             created_count += 1
-            staged_items.append(new_item)
 
     db.commit()
 
@@ -388,7 +670,6 @@ def get_staged_inventory(
     category: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Returns paginated medicines currently in Staging (Draft mode, not yet live)."""
     query = db.query(MedicineModel).filter(MedicineModel.is_published == False)
 
     if search:
@@ -413,7 +694,6 @@ def get_staged_inventory(
         .all()
     )
 
-    # Category breakdown for all staged items
     all_staged = db.query(MedicineModel.category).filter(MedicineModel.is_published == False).all()
     counts: Dict[str, int] = {}
     for (cat,) in all_staged:
@@ -437,7 +717,6 @@ def get_live_inventory(
     category: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Returns paginated medicines published and live on the patient storefront."""
     query = db.query(MedicineModel).filter(MedicineModel.is_published == True)
 
     if search:
@@ -488,7 +767,6 @@ def update_inventory_item(
     payload: MedicineUpdateRequest,
     db: Session = Depends(get_db),
 ):
-    """Inline update for any staged or published medicine."""
     item = db.query(MedicineModel).filter(MedicineModel.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Medicine not found.")
@@ -517,7 +795,6 @@ def update_inventory_item(
 
 @app.delete("/api/inventory/{item_id}")
 def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
-    """Deletes an item from inventory."""
     item = db.query(MedicineModel).filter(MedicineModel.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Medicine not found.")
@@ -535,10 +812,6 @@ def publish_staged_medicines(
     payload: PublishRequest,
     db: Session = Depends(get_db),
 ):
-    """
-    Publishes staged medicines to the live storefront (sets is_published = True).
-    If item_ids is provided, publishes only those; otherwise publishes ALL staged medicines.
-    """
     query = db.query(MedicineModel).filter(MedicineModel.is_published == False)
     if payload.item_ids and len(payload.item_ids) > 0:
         query = query.filter(MedicineModel.id.in_(payload.item_ids))
@@ -555,7 +828,6 @@ def publish_staged_medicines(
 
 @app.delete("/api/inventory/staged/clear")
 def clear_staged_medicines(db: Session = Depends(get_db)):
-    """Discards all draft medicines currently in staging."""
     count = (
         db.query(MedicineModel)
         .filter(MedicineModel.is_published == False)
@@ -570,7 +842,7 @@ def clear_staged_medicines(db: Session = Depends(get_db)):
 
 
 # ==============================================================================
-# 3. CUSTOMER LIVE STOREFRONT ENDPOINTS (/api/medicines)
+# 4. CUSTOMER LIVE STOREFRONT & DYNAMIC DETAILS (/api/medicines)
 # ==============================================================================
 
 @app.get("/api/medicines")
@@ -580,10 +852,6 @@ def get_customer_medicines(
     sort: Optional[str] = Query("popular"),
     db: Session = Depends(get_db),
 ):
-    """
-    Customer storefront query: Strictly returns items that are published
-    (is_published == True) and in stock (stock_quantity > 0).
-    """
     query = db.query(MedicineModel).filter(
         MedicineModel.is_published == True,
         MedicineModel.stock_quantity > 0,
@@ -615,12 +883,25 @@ def get_customer_medicines(
 
 @app.get("/api/medicines/{item_id}")
 def get_customer_medicine_detail(item_id: int, db: Session = Depends(get_db)):
-    """Customer medicine detail endpoint."""
+    """
+    Returns full dynamic medicine detail with auto-synthesized clinical information
+    (composition, dosage form, uses, dosage advisory, side effects, warnings, and pack size).
+    """
     item = (
         db.query(MedicineModel)
-        .filter(MedicineModel.id == item_id, MedicineModel.is_published == True)
+        .filter(MedicineModel.id == item_id)
         .first()
     )
     if not item:
         raise HTTPException(status_code=404, detail="Medicine not found in catalog.")
-    return item.to_dict()
+
+    base_dict = item.to_dict()
+    clinical_data = generate_clinical_info(
+        name=item.name,
+        salt=item.salt,
+        category=item.category,
+    )
+
+    # Merge dynamic clinical guidelines
+    base_dict.update(clinical_data)
+    return base_dict

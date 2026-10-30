@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -97,8 +97,89 @@ class MedicineModel(Base):
         }
 
 
+class OrderModel(Base):
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(String(50), unique=True, index=True)  # e.g. DP-101
+    customer_name = Column(String(200), nullable=False)
+    customer_phone = Column(String(50), nullable=False)
+    customer_email = Column(String(200), nullable=True, default="")
+    user_id = Column(String(100), nullable=True, index=True, default="")
+    district = Column(String(100), nullable=False)  # Pune, Nashik, Ahmednagar, Aurangabad
+    address = Column(Text, nullable=False)
+    pincode = Column(String(20), nullable=True, default="")
+    items = Column(Text, nullable=False, default="[]")  # JSON list of cart items
+    subtotal = Column(Float, default=0.0)
+    discount = Column(Float, default=0.0)
+    delivery_fee = Column(Float, default=0.0)
+    total_amount = Column(Float, default=0.0)
+    payment_method = Column(String(50), default="COD")  # COD, UPI
+    payment_status = Column(String(50), default="pending")  # pending, paid
+    prescription_file = Column(String(300), nullable=True, default="")
+    status = Column(String(50), default="pending", index=True)  # pending, confirmed, dispatched, delivered, cancelled
+    expected_delivery = Column(String(150), nullable=True, default="Expected in 2–4 hours")
+    delivery_agent = Column(String(100), nullable=True, default="Sanjay Kumar (Dhruv Express)")
+    notes = Column(Text, nullable=True, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        try:
+            parsed_items = json.loads(self.items)
+        except Exception:
+            parsed_items = []
+
+        return {
+            "id": self.order_id,
+            "numericId": self.id,
+            "orderId": self.order_id,
+            "patient": self.customer_name,
+            "customerName": self.customer_name,
+            "phone": self.customer_phone,
+            "email": self.customer_email or "",
+            "userId": self.user_id or "",
+            "district": self.district,
+            "address": self.address,
+            "pincode": self.pincode or "",
+            "items": parsed_items,
+            "itemCount": sum(i.get("qty", 1) for i in parsed_items) if parsed_items else 0,
+            "subtotal": round(self.subtotal, 2),
+            "discount": round(self.discount, 2),
+            "deliveryFee": round(self.delivery_fee, 2),
+            "amount": round(self.total_amount, 2),
+            "totalAmount": round(self.total_amount, 2),
+            "paymentMethod": self.payment_method,
+            "paymentStatus": self.payment_status,
+            "prescriptionFile": self.prescription_file or "",
+            "status": self.status,
+            "expectedDelivery": self.expected_delivery or "Expected in 2–4 hours",
+            "type": "prescription" if bool(self.prescription_file) else "direct",
+            "agent": self.delivery_agent or "—",
+            "deliveryAgent": self.delivery_agent or "—",
+            "notes": self.notes or "",
+            "date": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
+            "createdAt": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
+        }
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+    # SQLite schema migration for newly added columns
+    with engine.connect() as conn:
+        try:
+            cursor = conn.connection.cursor()
+            cursor.execute("PRAGMA table_info(orders)")
+            cols = [col[1] for col in cursor.fetchall()]
+            if cols and "expected_delivery" not in cols:
+                cursor.execute("ALTER TABLE orders ADD COLUMN expected_delivery VARCHAR(150) DEFAULT 'Expected in 2–4 hours'")
+                conn.connection.commit()
+            if cols and "user_id" not in cols:
+                cursor.execute("ALTER TABLE orders ADD COLUMN user_id VARCHAR(100) DEFAULT ''")
+                conn.connection.commit()
+        except Exception as e:
+            print("Order migration notice:", e)
 
     db = SessionLocal()
     try:
@@ -231,7 +312,7 @@ def init_db():
                     "requires_prescription": False,
                     "is_published": True,
                 },
-                # Staged / Draft Items (Admin workspace inspection)
+                # Staged / Draft Items
                 {
                     "item_code": "MED-STG-001",
                     "name": "PHENSEDYL DX SYP 100ML",
@@ -277,6 +358,79 @@ def init_db():
             ]
             for m in sample_medicines:
                 db.add(MedicineModel(**m))
+            db.commit()
+
+        # 3. Seed sample orders if empty
+        if db.query(OrderModel).count() == 0:
+            sample_orders = [
+                {
+                    "order_id": "DP-142",
+                    "customer_name": "Rajesh Patil",
+                    "customer_phone": "+91 98765 43210",
+                    "customer_email": "rajesh.patil@example.com",
+                    "district": "Pune",
+                    "address": "Flat 302, Green Acre, Baner, Pune – 411045",
+                    "pincode": "411045",
+                    "items": json.dumps([
+                        {"id": 2, "name": "Dolo 650 Tablet", "price": 29.0, "mrp": 34.0, "qty": 2, "brand": "Micro Labs"},
+                        {"id": 5, "name": "Pan-D Capsule", "price": 175.0, "mrp": 199.0, "qty": 1, "brand": "Alkem Labs"},
+                    ]),
+                    "subtotal": 233.0,
+                    "discount": 0.0,
+                    "delivery_fee": 0.0,
+                    "total_amount": 233.0,
+                    "payment_method": "COD",
+                    "payment_status": "pending",
+                    "status": "dispatched",
+                    "delivery_agent": "Sanjay Kumar (Dhruv Express)",
+                    "created_at": datetime.now(),
+                },
+                {
+                    "order_id": "DP-141",
+                    "customer_name": "Meena Joshi",
+                    "customer_phone": "+91 76543 21098",
+                    "customer_email": "meena.j@example.com",
+                    "district": "Nashik",
+                    "address": "12, College Road, Near BYK College, Nashik – 422005",
+                    "pincode": "422005",
+                    "items": json.dumps([
+                        {"id": 1, "name": "Augmentin 625 Duo Tablet", "price": 196.0, "mrp": 223.5, "qty": 2, "brand": "GSK"},
+                        {"id": 6, "name": "Shelcal 500 Tablet", "price": 115.0, "mrp": 131.0, "qty": 1, "brand": "Torrent"},
+                    ]),
+                    "subtotal": 507.0,
+                    "discount": 25.0,
+                    "delivery_fee": 0.0,
+                    "total_amount": 482.0,
+                    "payment_method": "UPI",
+                    "payment_status": "paid",
+                    "status": "delivered",
+                    "delivery_agent": "Ramesh Yadav",
+                    "created_at": datetime.now(),
+                },
+                {
+                    "order_id": "DP-140",
+                    "customer_name": "Suresh Kale",
+                    "customer_phone": "+91 98001 34567",
+                    "customer_email": "suresh.kale@example.com",
+                    "district": "Ahmednagar",
+                    "address": "45, Savedi Road, Ahmednagar – 414003",
+                    "pincode": "414003",
+                    "items": json.dumps([
+                        {"id": 4, "name": "Telma 40 Tablet", "price": 125.0, "mrp": 142.0, "qty": 1, "brand": "Glenmark"},
+                    ]),
+                    "subtotal": 125.0,
+                    "discount": 0.0,
+                    "delivery_fee": 40.0,
+                    "total_amount": 165.0,
+                    "payment_method": "COD",
+                    "payment_status": "pending",
+                    "status": "confirmed",
+                    "delivery_agent": "Sanjay Kumar",
+                    "created_at": datetime.now(),
+                },
+            ]
+            for order in sample_orders:
+                db.add(OrderModel(**order))
             db.commit()
 
     finally:

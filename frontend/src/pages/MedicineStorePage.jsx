@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useCart } from '../context/CartContext'
 import {
     Search,
     Filter,
@@ -11,6 +12,7 @@ import {
     ChevronDown,
     Loader2,
     Sparkles,
+    Check,
 } from 'lucide-react'
 
 /* ── Fallback mock data if server is unreachable ── */
@@ -49,10 +51,19 @@ const SORT_OPTIONS = [
 
 /* ── Medicine Card ── */
 function MedicineCard({ medicine }) {
+    const { addToCart } = useCart()
+    const [justAdded, setJustAdded] = useState(false)
+
     const mrp = medicine.mrp || 0
     const price = medicine.price || medicine.sellingPrice || 0
     const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : 0
     const requiresRx = medicine.requires_rx || medicine.requiresPrescription
+
+    const handleAdd = () => {
+        addToCart(medicine, 1)
+        setJustAdded(true)
+        setTimeout(() => setJustAdded(false), 1500)
+    }
 
     return (
         <div className={`bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group flex flex-col ${!medicine.inStock ? 'opacity-60' : ''}`}>
@@ -118,9 +129,23 @@ function MedicineCard({ medicine }) {
                         Details
                     </Link>
                     {medicine.inStock ? (
-                        <button className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-1.5 rounded-lg transition-colors shadow-2xs">
-                            <ShoppingCart size={12} />
-                            Add
+                        <button
+                            onClick={handleAdd}
+                            className={`flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-lg transition-all shadow-2xs ${
+                                justAdded
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-blue-600 hover:bg-blue-700 active:scale-95 text-white'
+                            }`}
+                        >
+                            {justAdded ? (
+                                <>
+                                    <Check size={12} /> Added!
+                                </>
+                            ) : (
+                                <>
+                                    <ShoppingCart size={12} /> Add
+                                </>
+                            )}
                         </button>
                     ) : (
                         <button disabled className="flex-1 bg-gray-200 text-gray-400 text-xs font-medium py-1.5 rounded-lg cursor-not-allowed">

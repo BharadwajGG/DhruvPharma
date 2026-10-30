@@ -5,6 +5,8 @@ import {
     createUserWithEmailAndPassword,
     updateProfile,
     signOut,
+    GoogleAuthProvider,
+    signInWithPopup,
 } from 'firebase/auth'
 import { auth, isFirebaseConfigured } from '../firebase/config'
 
@@ -74,6 +76,15 @@ export function AuthProvider({ children }) {
         return { user: credential.user, isAdmin: userIsAdmin, claims }
     }
 
+    /* ── Sign In with Google OAuth ── */
+    const loginWithGoogle = async () => {
+        const provider = new GoogleAuthProvider()
+        provider.setCustomParameters({ prompt: 'select_account' })
+        const credential = await signInWithPopup(auth, provider)
+        const { isAdmin: userIsAdmin, claims } = await verifyUserClaims(credential.user)
+        return { user: credential.user, isAdmin: userIsAdmin, claims }
+    }
+
     /* ── Public Non-Admin Registration (Prescription Queue & Customers) ── */
     // Public signup NEVER grants admin permissions.
     const register = async (email, password, displayName = '') => {
@@ -108,6 +119,7 @@ export function AuthProvider({ children }) {
         userClaims,
         loading,
         login,
+        loginWithGoogle,
         register,
         logout,
         refreshClaims,

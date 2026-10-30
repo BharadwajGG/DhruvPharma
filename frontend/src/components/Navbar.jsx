@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useCart } from '../context/CartContext'
 import {
     ShoppingCart,
     FileText,
@@ -22,7 +23,7 @@ const NAV_LINKS = [
     { label: 'Home',                path: '/' },
     { label: 'Medicine Store',      path: '/medicines' },
     { label: 'Upload Prescription', path: '/prescription' },
-    { label: 'Track Order',         path: '/track-order' },
+    { label: 'My Orders',           path: '/my-orders' },
     { label: 'Contact Us',          path: '/contact' },
 ]
 
@@ -34,6 +35,7 @@ export default function Navbar() {
     const location = useLocation()
     const navigate = useNavigate()
     const { currentUser, isAdmin, logout } = useAuth()
+    const { totalItems } = useCart()
 
     const dropdownRef = useRef(null)
 
@@ -166,9 +168,11 @@ export default function Navbar() {
                     >
                         <ShoppingCart size={16} />
                         <span className="hidden sm:inline">Cart</span>
-                        <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                            0
-                        </span>
+                        {totalItems > 0 && (
+                            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-in zoom-in">
+                                {totalItems}
+                            </span>
+                        )}
                     </Link>
 
                     {/* ── Login Button (at the right side of Cart button) ── */}
@@ -182,9 +186,17 @@ export default function Navbar() {
                                 aria-expanded={loginDropdownOpen}
                                 aria-label="User account menu"
                             >
-                                <div className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-bold">
-                                    {userDisplayName[0].toUpperCase()}
-                                </div>
+                                {currentUser.photoURL ? (
+                                    <img
+                                        src={currentUser.photoURL}
+                                        alt={userDisplayName}
+                                        className="w-5 h-5 rounded-full object-cover border border-blue-300"
+                                    />
+                                ) : (
+                                    <div className="w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[10px] font-bold">
+                                        {userDisplayName[0].toUpperCase()}
+                                    </div>
+                                )}
                                 <span className="hidden sm:inline truncate max-w-[110px]">
                                     {userDisplayName}
                                 </span>
@@ -221,20 +233,33 @@ export default function Navbar() {
                                 {currentUser ? (
                                     // Authenticated User Dropdown Content
                                     <div className="space-y-1">
-                                        <div className="px-3 py-2.5 bg-gray-50 rounded-xl mb-1">
-                                            <p className="text-xs font-semibold text-gray-900 truncate">
-                                                {currentUser.displayName || 'Signed In User'}
-                                            </p>
-                                            <p className="text-[11px] text-gray-500 truncate">
-                                                {currentUser.email}
-                                            </p>
-                                            <span className={`inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                                isAdmin
-                                                    ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                                                    : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                                            }`}>
-                                                {isAdmin ? '🛡️ Administrator' : '👤 Customer'}
-                                            </span>
+                                        <div className="px-3 py-2.5 bg-gray-50 rounded-xl mb-1 flex items-center gap-2.5">
+                                            {currentUser.photoURL ? (
+                                                <img
+                                                    src={currentUser.photoURL}
+                                                    alt={userDisplayName}
+                                                    className="w-8 h-8 rounded-full object-cover border border-gray-200 shrink-0"
+                                                />
+                                            ) : (
+                                                <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold shrink-0">
+                                                    {userDisplayName[0].toUpperCase()}
+                                                </div>
+                                            )}
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-semibold text-gray-900 truncate">
+                                                    {currentUser.displayName || 'Signed In User'}
+                                                </p>
+                                                <p className="text-[11px] text-gray-500 truncate">
+                                                    {currentUser.email}
+                                                </p>
+                                                <span className={`inline-block mt-0.5 text-[9px] font-semibold px-2 py-0.2 rounded-full ${
+                                                    isAdmin
+                                                        ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                                                        : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                                }`}>
+                                                    {isAdmin ? '🛡️ Administrator' : '👤 Customer'}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         {isAdmin && (
