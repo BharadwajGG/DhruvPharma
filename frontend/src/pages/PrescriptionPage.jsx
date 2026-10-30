@@ -10,6 +10,7 @@ import {
     Phone,
     Info,
     Image,
+    Loader2,
 } from 'lucide-react'
 
 const STEPS = [
@@ -30,8 +31,11 @@ export default function PrescriptionPage() {
         district:     '',
         notes:        '',
     })
-    const [submitted, setSubmitted]  = useState(false)
-    const [errors, setErrors]        = useState({})
+    const [submitted, setSubmitted]      = useState(false)
+    const [submittedRxId, setSubmittedRxId] = useState('')
+    const [isUploading, setIsUploading]  = useState(false)
+    const [uploadError, setUploadError]  = useState('')
+    const [errors, setErrors]            = useState({})
 
     /* ── Helpers ── */
     const handleFiles = (incoming) => {
@@ -61,16 +65,51 @@ export default function PrescriptionPage() {
         return e
     }
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault()
+        setUploadError('')
         const errs = validate()
         if (Object.keys(errs).length > 0) {
             setErrors(errs)
             return
         }
         setErrors({})
-        /* TODO: POST to FastAPI backend */
-        setSubmitted(true)
+        setIsUploading(true)
+
+        try {
+            const payload = new FormData()
+            payload.append('patientName', formData.patientName.trim())
+            payload.append('phone', formData.phone.trim())
+            payload.append('district', formData.district.trim())
+            payload.append('address', formData.address.trim())
+            payload.append('notes', (formData.notes || '').trim())
+
+            // Append each file
+            files.forEach((file) => {
+                payload.append('files', file)
+            })
+
+            const response = await fetch('http://localhost:8000/api/prescriptions/upload', {
+                method: 'POST',
+                body: payload,
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}))
+                throw new Error(errorData.detail || 'Failed to upload prescription to server.')
+            }
+
+            const data = await response.json()
+            setSubmittedRxId(data.prescription?.id || 'RX-PENDING')
+            setSubmitted(true)
+        } catch (err) {
+            console.error('Prescription upload error:', err)
+            setUploadError(
+                err.message || 'Unable to connect to Dhruv Pharma server. Please ensure backend is running.'
+            )
+        } finally {
+            setIsUploading(false)
+        }
     }
 
     const formatFileSize = (bytes) => {
@@ -97,12 +136,17 @@ export default function PrescriptionPage() {
                     </p>
 
                     <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6 text-left">
-                        <p className="text-sm font-semibold text-blue-800 mb-2">Order Summary</p>
-                        <div className="space-y-1">
-                            <p className="text-xs text-blue-600">Patient: <span className="font-medium">{formData.patientName}</span></p>
-                            <p className="text-xs text-blue-600">Phone: <span className="font-medium">{formData.phone}</span></p>
-                            <p className="text-xs text-blue-600">District: <span className="font-medium">{formData.district}</span></p>
-                            <p className="text-xs text-blue-600">Files: <span className="font-medium">{files.length} prescription(s)</span></p>
+                        <div className="flex items-center justify-between mb-3 border-b border-blue-100 pb-2">
+                            <p className="text-sm font-semibold text-blue-800">Order Summary</p>
+                            <span className="bg-blue-600 text-white font-mono text-xs px-2.5 py-0.5 rounded-full font-bold">
+                                {submittedRxId || 'RX-PENDING'}
+                            </span>
+                        </div>
+                        <div className="space-y-1.5">
+                            <p className="text-xs text-blue-700">Patient: <span className="font-semibold text-gray-800">{formData.patientName}</span></p>
+                            <p className="text-xs text-blue-700">Phone: <span className="font-semibold text-gray-800">{formData.phone}</span></p>
+                            <p className="text-xs text-blue-700">District: <span className="font-semibold text-gray-800">{formData.district}</span></p>
+                            <p className="text-xs text-blue-700">Files: <span className="font-semibold text-gray-800">{files.length} prescription file(s)</span></p>
                         </div>
                     </div>
 
@@ -407,13 +451,38 @@ export default function PrescriptionPage() {
                                     />
                                 </div>
 
+                                {/* Upload Error Banner */}
+                                {uploadError && (
+                                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2.5 text-xs text-red-700">
+                                        <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                                        <div className="flex-1">
+                                            <p className="font-semibold mb-0.5">Upload Failed</p>
+                                            <p>{uploadError}</p>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Submit Button */}
                                 <button
                                     type="submit"
-                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+                                    disabled={isUploading}
+                                    className={`w-full text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 mt-2
+                                        ${isUploading
+                                            ? 'bg-blue-400 cursor-not-allowed'
+                                            : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.99] shadow-sm'
+                                        }`}
                                 >
-                                    <Upload size={18} />
-                                    Submit Prescription
+                                    {isUploading ? (
+                                        <>
+                                            <Loader2 size={18} className="animate-spin" />
+                                            <span>Uploading Prescription...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload size={18} />
+                                            <span>Submit Prescription</span>
+                                        </>
+                                    )}
                                 </button>
 
                                 <p className="text-[11px] text-gray-400 text-center">

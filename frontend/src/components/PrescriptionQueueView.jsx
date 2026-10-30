@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
     Eye,
     CheckCircle,
@@ -10,6 +10,9 @@ import {
     X,
     AlertCircle,
     Download,
+    ExternalLink,
+    RotateCw,
+    Loader2,
 } from 'lucide-react'
 
 export const INITIAL_PRESCRIPTIONS = [
@@ -83,6 +86,32 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
     const [prescriptions, setPrescriptions] = useState(INITIAL_PRESCRIPTIONS)
     const [filter, setFilter]               = useState('all')
     const [selected, setSelected]           = useState(null)
+    const [isLoading, setIsLoading]         = useState(false)
+    const [isRefreshing, setIsRefreshing]   = useState(false)
+
+    const fetchLivePrescriptions = async (isManual = false) => {
+        if (isManual) setIsRefreshing(true)
+        else setIsLoading(true)
+
+        try {
+            const res = await fetch('http://localhost:8000/api/prescriptions')
+            if (res.ok) {
+                const data = await res.json()
+                if (Array.isArray(data)) {
+                    setPrescriptions(data)
+                }
+            }
+        } catch (err) {
+            console.warn('Backend currently offline or unreachable, using default view:', err)
+        } finally {
+            setIsLoading(false)
+            setIsRefreshing(false)
+        }
+    }
+
+    useEffect(() => {
+        fetchLivePrescriptions()
+    }, [])
 
     const displayed = filter === 'all'
         ? prescriptions
@@ -90,12 +119,30 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
 
     const pendingCount = prescriptions.filter((rx) => rx.status === 'pending').length
 
-    const handleUpdateStatus = (id, newStatus) => {
+    const handleUpdateStatus = async (id, newStatus) => {
+        // Optimistic UI update
         setPrescriptions((prev) =>
             prev.map((rx) => (rx.id === id ? { ...rx, status: newStatus } : rx))
         )
         if (selected && selected.id === id) {
             setSelected((prev) => ({ ...prev, status: newStatus }))
+        }
+
+        try {
+            await fetch(`http://localhost:8000/api/prescriptions/${id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus }),
+            })
+        } catch (err) {
+            console.error('Failed to sync status with server:', err)
+        }
+    }
+
+    const handleOpenReview = (rx) => {
+        setSelected(rx)
+        if (rx.status === 'pending') {
+            handleUpdateStatus(rx.id, 'reviewed')
         }
     }
 
@@ -109,6 +156,15 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                         {subtitle || `${pendingCount} prescription${pendingCount !== 1 ? 's' : ''} waiting for pharmacist review`}
                     </p>
                 </div>
+                <button
+                    onClick={() => fetchLivePrescriptions(true)}
+                    disabled={isRefreshing || isLoading}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-700 shadow-xs transition-colors"
+                    title="Refresh live uploads from server"
+                >
+                    <RotateCw size={13} className={isRefreshing ? 'animate-spin text-blue-600' : 'text-gray-500'} />
+                    <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                </button>
             </div>
 
             {/* Filter Tabs */}
@@ -178,7 +234,7 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                             {/* Actions */}
                             <div className="flex gap-2 shrink-0">
                                 <button
-                                    onClick={() => setSelected(rx)}
+                                    onClick={() => handleOpenReview(rx)}
                                     className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
                                 >
                                     <Eye size={13} /> Review
@@ -232,19 +288,68 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                         <div className="p-6 space-y-5">
                             <div>
                                 <p className="text-sm font-semibold text-gray-700 mb-3">Prescription Files</p>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {selected.files.map((file) => (
-                                        <div
-                                            key={file}
-                                            className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl h-40 flex flex-col items-center justify-center gap-2"
-                                        >
-                                            <FileText size={32} className="text-gray-300" />
-                                            <p className="text-xs text-gray-500 text-center px-2 truncate max-w-full">{file}</p>
-                                            <span className="text-xs text-blue-600 flex items-center gap-1">
-                                                <Download size={11} /> {file}
-                                            </span>
-                                        </div>
-                                    ))}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {selected.files.map((file, idx) => {
+                                        const fileUrl = file.startsWith('http')
+                                            ? file
+                                            : file.startsWith('/uploads/')
+                                            ? `http://localhost:8000${file}`
+                                            : null
+                                        const isImg = fileUrl && /\.(jpg|jpeg|png|webp|gif)$/i.test(file)
+                                        const isPdf = fileUrl && /\.pdf$/i.test(file)
+
+                                        if (isImg) {
+                                            return (
+                                                <a
+                                                    key={idx}
+                                                    href={fileUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="group relative rounded-xl overflow-hidden border border-gray-200 bg-gray-900 block aspect-4/3"
+                                                >
+                                                    <img
+                                                        src={fileUrl}
+                                                        alt="Prescription"
+                                                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-xs font-semibold gap-1.5">
+                                                        <ExternalLink size={14} /> Open Full Image
+                                                    </div>
+                                                </a>
+                                            )
+                                        }
+
+                                        if (isPdf) {
+                                            return (
+                                                <a
+                                                    key={idx}
+                                                    href={fileUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors text-center aspect-4/3"
+                                                >
+                                                    <FileText size={36} className="text-red-500" />
+                                                    <p className="text-xs font-medium text-gray-800 line-clamp-1 max-w-full px-2">
+                                                        {file.split('/').pop()}
+                                                    </p>
+                                                    <span className="text-[11px] font-semibold text-red-600 bg-white px-2.5 py-1 rounded-md shadow-xs flex items-center gap-1">
+                                                        <ExternalLink size={12} /> View PDF
+                                                    </span>
+                                                </a>
+                                            )
+                                        }
+
+                                        return (
+                                            <div
+                                                key={idx}
+                                                className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl p-4 flex flex-col items-center justify-center gap-2 aspect-4/3"
+                                            >
+                                                <FileText size={32} className="text-gray-300" />
+                                                <p className="text-xs text-gray-500 text-center px-2 truncate max-w-full">{file}</p>
+                                                <span className="text-[11px] text-gray-400">Sample Mock File</span>
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
 
