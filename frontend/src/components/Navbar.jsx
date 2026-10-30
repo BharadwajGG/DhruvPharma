@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
+import { useWishlist } from '../context/WishlistContext'
 import {
     ShoppingCart,
+    Heart,
     FileText,
     Search,
     Menu,
@@ -36,6 +38,7 @@ export default function Navbar() {
     const navigate = useNavigate()
     const { currentUser, isAdmin, logout } = useAuth()
     const { totalItems } = useCart()
+    const { totalWishlistItems } = useWishlist()
 
     const dropdownRef = useRef(null)
 
@@ -159,6 +162,21 @@ export default function Navbar() {
                     >
                         <FileText size={15} />
                         Upload Rx
+                    </Link>
+
+                    {/* Wishlist Button */}
+                    <Link
+                        to="/wishlist"
+                        className="relative flex items-center gap-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+                        title="Saved Medicines (Wishlist)"
+                    >
+                        <Heart size={16} className={totalWishlistItems > 0 ? 'text-red-500 fill-red-500' : 'text-gray-500'} />
+                        <span className="hidden sm:inline">Wishlist</span>
+                        {totalWishlistItems > 0 && (
+                            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-in zoom-in">
+                                {totalWishlistItems}
+                            </span>
+                        )}
                     </Link>
 
                     {/* Cart Button */}
@@ -432,6 +450,25 @@ export default function Navbar() {
 
                     {/* Mobile Nav Links */}
                     <ul className="py-2">
+                        <li>
+                            <Link
+                                to="/wishlist"
+                                onClick={() => setMenuOpen(false)}
+                                className={`flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors ${
+                                    isActive('/wishlist') ? 'text-red-600 bg-red-50' : 'text-gray-700 hover:bg-gray-50'
+                                }`}
+                            >
+                                <span className="flex items-center gap-2">
+                                    <Heart size={16} className={totalWishlistItems > 0 ? 'text-red-500 fill-red-500' : 'text-gray-500'} />
+                                    <span>My Wishlist</span>
+                                </span>
+                                {totalWishlistItems > 0 && (
+                                    <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                        {totalWishlistItems}
+                                    </span>
+                                )}
+                            </Link>
+                        </li>
                         {NAV_LINKS.map((link) => (
                             <li key={link.path}>
                                 <Link

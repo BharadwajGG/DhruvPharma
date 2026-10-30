@@ -2,11 +2,13 @@ import { useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
+import { useWishlist } from '../context/WishlistContext'
 import {
     ShoppingCart,
     Plus,
     Minus,
     Trash2,
+    Heart,
     Upload,
     ArrowRight,
     ArrowLeft,
@@ -20,6 +22,13 @@ import {
     Loader2,
     FileText,
     ExternalLink,
+    QrCode,
+    CreditCard,
+    Copy,
+    Check,
+    X,
+    Info,
+    Sparkles,
 } from 'lucide-react'
 
 export default function CartPage() {
@@ -39,7 +48,8 @@ export default function CartPage() {
         hasRxItem,
     } = useCart()
 
-    const rxFileInputRef = useRef(null)
+    const { rxFileInputRef } = { rxFileInputRef: useRef(null) }
+    const { addToWishlist } = useWishlist()
 
     // Flow Step: 'cart' (Review Items) or 'checkout' (Enter Details)
     const [step, setStep] = useState('cart')
@@ -52,7 +62,7 @@ export default function CartPage() {
         district: 'Pune',
         address: '',
         pincode: '',
-        paymentMethod: 'COD',
+        paymentMethod: 'COD', // 'COD' | 'UPI_QR' | 'CASHFREE'
         notes: '',
     })
 
@@ -62,6 +72,21 @@ export default function CartPage() {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [orderSuccess, setOrderSuccess] = useState(null)
     const [formErrors, setFormErrors] = useState({})
+
+    // Payment Gateway & UPI QR Modals State
+    const [upiModalOpen, setUpiModalOpen] = useState(false)
+    const [cashfreeModalOpen, setCashfreeModalOpen] = useState(false)
+    const [cashfreeSession, setCashfreeSession] = useState(null)
+    const [activePaymentOrder, setActivePaymentOrder] = useState(null)
+    const [utrInput, setUtrInput] = useState('')
+    const [isVerifyingPayment, setIsVerifyingPayment] = useState(false)
+    const [copiedUpi, setCopiedUpi] = useState(false)
+    const [toastMessage, setToastMessage] = useState('')
+
+    const showToast = (msg) => {
+        setToastMessage(msg)
+        setTimeout(() => setToastMessage(''), 3000)
+    }
 
     const handleApplyCoupon = () => {
         if (coupon.trim().toUpperCase() === 'DHRUV5') {
@@ -130,7 +155,39 @@ export default function CartPage() {
             // Save order into customer's persistent order history
             savePlacedOrder(result.order)
 
-            // Clear active cart ONLY upon successful order placement
+            // Branch based on selected payment method
+            if (formData.paymentMethod === 'UPI_QR') {
+                setActivePaymentOrder(result.order)
+                setUpiModalOpen(true)
+                return
+            }
+
+            if (formData.paymentMethod === 'CASHFREE') {
+                setActivePaymentOrder(result.order)
+                try {
+                    const cfRes = await fetch('http://localhost:8000/api/payment/cashfree/create-order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            orderId: result.order.id || result.order.orderId,
+                            amount: finalPayable,
+                            customerName: formData.customerName,
+                            customerPhone: formData.phone,
+                            customerEmail: formData.email || currentUser?.email || '',
+                        }),
+                    })
+                    const cfData = await cfRes.json()
+                    setCashfreeSession(cfData)
+                    setCashfreeModalOpen(true)
+                } catch (e) {
+                    console.error('Cashfree session init error:', e)
+                    setCashfreeSession({ mode: 'test_simulation', orderId: result.order.id || result.order.orderId })
+                    setCashfreeModalOpen(true)
+                }
+                return
+            }
+
+            // Cash on Delivery (COD) places immediately
             clearCart()
             setOrderSuccess(result)
         } catch (err) {
@@ -138,6 +195,72 @@ export default function CartPage() {
             alert(err.message || 'Unable to place order. Please ensure the backend server is running.')
         } finally {
             setIsSubmitting(false)
+        }
+    }
+
+    // Confirm UPI QR Payment
+    const handleConfirmUpiPayment = async () => {
+        if (!activePaymentOrder) return
+        setIsVerifyingPayment(true)
+        try {
+            const res = await fetch('http://localhost:8000/api/payment/upi-qr/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: activePaymentOrder.id || activePaymentOrder.orderId,
+                    utrNumber: utrInput.trim(),
+                    upiApp: 'UPI QR',
+                }),
+            })
+            const result = await res.json()
+            if (!res.ok) throw new Error(result.detail || 'Failed to verify UPI payment')
+
+            const confirmedOrder = result.order || activePaymentOrder
+            savePlacedOrder(confirmedOrder)
+            clearCart()
+            setUpiModalOpen(false)
+            setOrderSuccess({
+                order: confirmedOrder,
+                whatsappMessage: `Hello Dhruv Pharma, I have paid ₹${finalPayable} via UPI QR for Order #${confirmedOrder.id || confirmedOrder.orderId}.`,
+            })
+        } catch (err) {
+            console.error('UPI confirm error:', err)
+            alert(err.message || 'Payment confirmation failed. Please try again.')
+        } finally {
+            setIsVerifyingPayment(false)
+        }
+    }
+
+    // Confirm Cashfree Payment
+    const handleConfirmCashfreePayment = async (paymentId = 'CF_SANDBOX_SUCCESS') => {
+        if (!activePaymentOrder) return
+        setIsVerifyingPayment(true)
+        try {
+            const res = await fetch('http://localhost:8000/api/payment/cashfree/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: activePaymentOrder.id || activePaymentOrder.orderId,
+                    paymentId,
+                    cashfreeOrderId: cashfreeSession?.cashfreeOrderId || '',
+                }),
+            })
+            const result = await res.json()
+            if (!res.ok) throw new Error(result.detail || 'Failed to verify Cashfree payment')
+
+            const confirmedOrder = result.order || activePaymentOrder
+            savePlacedOrder(confirmedOrder)
+            clearCart()
+            setCashfreeModalOpen(false)
+            setOrderSuccess({
+                order: confirmedOrder,
+                whatsappMessage: `Hello Dhruv Pharma, I have paid ₹${finalPayable} via Cashfree Online Gateway for Order #${confirmedOrder.id || confirmedOrder.orderId}.`,
+            })
+        } catch (err) {
+            console.error('Cashfree verify error:', err)
+            alert(err.message || 'Payment verification failed. Please try again.')
+        } finally {
+            setIsVerifyingPayment(false)
         }
     }
 
@@ -344,19 +467,33 @@ export default function CartPage() {
                                             </button>
                                         </div>
 
-                                        {/* Item Total & Remove */}
+                                        {/* Item Total, Save for Later & Remove */}
                                         <div className="text-right shrink-0">
                                             <p className="font-bold text-gray-900 text-xs">
                                                 ₹{(item.price * item.qty).toFixed(2)}
                                             </p>
-                                            <button
-                                                type="button"
-                                                onClick={() => removeFromCart(item.id)}
-                                                className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                                                title="Remove item"
-                                            >
-                                                <Trash2 size={13} />
-                                            </button>
+                                            <div className="flex items-center justify-end gap-1 mt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        addToWishlist(item)
+                                                        removeFromCart(item.id)
+                                                        showToast(`Saved "${item.name}" to your wishlist!`)
+                                                    }}
+                                                    className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50 cursor-pointer"
+                                                    title="Save for Later (Move to Wishlist)"
+                                                >
+                                                    <Heart size={13} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeFromCart(item.id)}
+                                                    className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded hover:bg-red-50 cursor-pointer"
+                                                    title="Remove item"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
@@ -597,34 +734,106 @@ export default function CartPage() {
                                     )}
                                 </div>
 
-                                {/* Payment Method */}
+                                {/* Payment Method Selector */}
                                 <div>
-                                    <label className="block font-semibold text-gray-700 mb-1.5">
-                                        Payment Method
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            type="button"
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <label className="block font-semibold text-gray-700">
+                                            Select Payment Method <span className="text-red-500">*</span>
+                                        </label>
+                                        <span className="text-[10px] text-gray-400 font-medium">100% Secure Checkout</span>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        {/* Option 1: Cash on Delivery */}
+                                        <div
                                             onClick={() => setFormData({ ...formData, paymentMethod: 'COD' })}
-                                            className={`py-2 px-3 rounded-xl border text-center font-semibold text-xs transition-colors ${
+                                            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
                                                 formData.paymentMethod === 'COD'
-                                                    ? 'bg-blue-50 border-blue-600 text-blue-700'
-                                                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                                    ? 'bg-blue-50/70 border-blue-600 ring-1 ring-blue-600'
+                                                    : 'border-gray-200 hover:bg-gray-50'
                                             }`}
                                         >
-                                            💵 Cash on Delivery (COD)
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData({ ...formData, paymentMethod: 'UPI' })}
-                                            className={`py-2 px-3 rounded-xl border text-center font-semibold text-xs transition-colors ${
-                                                formData.paymentMethod === 'UPI'
-                                                    ? 'bg-blue-50 border-blue-600 text-blue-700'
-                                                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                            <div className="flex items-center gap-2.5">
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                                                    formData.paymentMethod === 'COD' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                    💵
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-gray-900 text-xs">Cash on Delivery (COD)</p>
+                                                    <p className="text-[11px] text-gray-500">Pay cash or scan courier UPI upon doorstep delivery</p>
+                                                </div>
+                                            </div>
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                                formData.paymentMethod === 'COD' ? 'border-blue-600 bg-blue-600' : 'border-gray-300'
+                                            }`}>
+                                                {formData.paymentMethod === 'COD' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                            </div>
+                                        </div>
+
+                                        {/* Option 2: Instant UPI Dynamic QR */}
+                                        <div
+                                            onClick={() => setFormData({ ...formData, paymentMethod: 'UPI_QR' })}
+                                            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                                                formData.paymentMethod === 'UPI_QR'
+                                                    ? 'bg-blue-50/70 border-blue-600 ring-1 ring-blue-600'
+                                                    : 'border-gray-200 hover:bg-gray-50'
                                             }`}
                                         >
-                                            📱 UPI on Delivery
-                                        </button>
+                                            <div className="flex items-center gap-2.5">
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                                                    formData.paymentMethod === 'UPI_QR' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                    <QrCode size={16} />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="font-bold text-gray-900 text-xs">Instant UPI Dynamic QR</p>
+                                                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200">
+                                                            Zero Gateway Fee
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[11px] text-gray-500">Scan &amp; pay via Google Pay, PhonePe, Paytm, BHIM</p>
+                                                </div>
+                                            </div>
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                                formData.paymentMethod === 'UPI_QR' ? 'border-blue-600 bg-blue-600' : 'border-gray-300'
+                                            }`}>
+                                                {formData.paymentMethod === 'UPI_QR' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                            </div>
+                                        </div>
+
+                                        {/* Option 3: Cashfree Online Gateway */}
+                                        <div
+                                            onClick={() => setFormData({ ...formData, paymentMethod: 'CASHFREE' })}
+                                            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                                                formData.paymentMethod === 'CASHFREE'
+                                                    ? 'bg-blue-50/70 border-blue-600 ring-1 ring-blue-600'
+                                                    : 'border-gray-200 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2.5">
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                                                    formData.paymentMethod === 'CASHFREE' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                    <CreditCard size={16} />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="font-bold text-gray-900 text-xs">Cashfree Online Gateway</p>
+                                                        <span className="bg-blue-100 text-blue-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-blue-200">
+                                                            Cards · Netbanking · UPI
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[11px] text-gray-500">Instant online settlement (Test sandbox active / live ready)</p>
+                                                </div>
+                                            </div>
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                                formData.paymentMethod === 'CASHFREE' ? 'border-blue-600 bg-blue-600' : 'border-gray-300'
+                                            }`}>
+                                                {formData.paymentMethod === 'CASHFREE' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -677,6 +886,226 @@ export default function CartPage() {
                                     <span>Total Amount:</span>
                                     <span className="text-blue-700 text-base">₹{finalPayable.toFixed(2)}</span>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Toast Notification ── */}
+                {toastMessage && (
+                    <div className="fixed bottom-6 right-6 bg-gray-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 z-50 animate-in fade-in slide-in-from-bottom-2">
+                        <Sparkles size={14} className="text-yellow-400" />
+                        <span>{toastMessage}</span>
+                    </div>
+                )}
+
+                {/* ── 1. UPI DYNAMIC QR CODE MODAL ── */}
+                {upiModalOpen && activePaymentOrder && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 space-y-5 border border-gray-100 shadow-2xl relative">
+                            {/* Close Button */}
+                            <button
+                                type="button"
+                                onClick={() => setUpiModalOpen(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            {/* Header */}
+                            <div className="text-center space-y-1">
+                                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                                    <QrCode size={26} />
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-900">Scan &amp; Pay via UPI</h3>
+                                <p className="text-xs text-gray-500">
+                                    Order <strong className="text-gray-800 font-mono">{activePaymentOrder.id || activePaymentOrder.orderId}</strong> · Instant 0% gateway fee
+                                </p>
+                            </div>
+
+                            {/* Amount Highlight */}
+                            <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-3 text-center">
+                                <p className="text-[11px] text-blue-700 font-semibold uppercase tracking-wider">Payable Amount</p>
+                                <p className="text-2xl font-black text-blue-900 mt-0.5">₹{finalPayable.toFixed(2)}</p>
+                            </div>
+
+                            {/* Dynamic QR Code */}
+                            <div className="flex flex-col items-center justify-center py-2">
+                                <div className="bg-white p-3 rounded-2xl border-2 border-dashed border-gray-300 shadow-inner">
+                                    <img
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(
+                                            `upi://pay?pa=dhruvpharma@okaxis&pn=DhruvPharma&am=${finalPayable}&tr=${activePaymentOrder.id || activePaymentOrder.orderId}&cu=INR&tn=Order%20Payment`
+                                        )}`}
+                                        alt="UPI Dynamic QR Code"
+                                        className="w-48 h-48 rounded-xl object-contain mx-auto"
+                                    />
+                                </div>
+                                <p className="text-[11px] text-gray-400 mt-2 text-center">
+                                    Scan with Google Pay, PhonePe, Paytm, BHIM, or any banking app
+                                </p>
+                            </div>
+
+                            {/* UPI ID Copy & Mobile Link */}
+                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                                <div className="min-w-0 pr-2">
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase">Dhruv Pharma UPI ID</p>
+                                    <p className="font-mono font-bold text-gray-800 truncate">dhruvpharma@okaxis</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText('dhruvpharma@okaxis')
+                                        setCopiedUpi(true)
+                                        setTimeout(() => setCopiedUpi(false), 2000)
+                                    }}
+                                    className="shrink-0 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                                >
+                                    {copiedUpi ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
+                                    <span>{copiedUpi ? 'Copied!' : 'Copy ID'}</span>
+                                </button>
+                            </div>
+
+                            {/* UTR Input */}
+                            <div className="space-y-1">
+                                <label className="block text-[11px] font-bold text-gray-700">
+                                    UPI Ref / UTR No. <span className="text-gray-400 font-normal">(Optional for instant match)</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. 324158904512 (12-digit UTR)"
+                                    value={utrInput}
+                                    onChange={(e) => setUtrInput(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-blue-500 font-mono"
+                                />
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="space-y-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={handleConfirmUpiPayment}
+                                    disabled={isVerifyingPayment}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3 rounded-xl transition-all shadow-xs text-xs flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    {isVerifyingPayment ? (
+                                        <>
+                                            <Loader2 size={14} className="animate-spin" />
+                                            <span>Verifying Payment...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <CheckCircle size={15} />
+                                            <span>I Have Completed Payment</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setUpiModalOpen(false)
+                                        setFormData((prev) => ({ ...prev, paymentMethod: 'COD' }))
+                                        showToast('Switched payment method to Cash on Delivery.')
+                                    }}
+                                    className="w-full text-center text-xs text-gray-500 hover:text-gray-800 py-1 transition-colors"
+                                >
+                                    Cancel &amp; Pay via Cash on Delivery instead
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 2. CASHFREE ONLINE GATEWAY MODAL ── */}
+                {cashfreeModalOpen && activePaymentOrder && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 space-y-5 border border-gray-100 shadow-2xl relative">
+                            {/* Close Button */}
+                            <button
+                                type="button"
+                                onClick={() => setCashfreeModalOpen(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            {/* Cashfree Header */}
+                            <div className="text-center space-y-1">
+                                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                                    <CreditCard size={26} />
+                                </div>
+                                <div className="flex items-center justify-center gap-2">
+                                    <h3 className="text-xl font-bold text-gray-900">Cashfree Payments</h3>
+                                    <span className="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+                                        Sandbox Test
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-500">
+                                    Secured by 256-bit encryption · Order <strong className="text-gray-800 font-mono">{activePaymentOrder.id || activePaymentOrder.orderId}</strong>
+                                </p>
+                            </div>
+
+                            {/* Amount Highlight */}
+                            <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-3 text-center">
+                                <p className="text-[11px] text-indigo-700 font-semibold uppercase tracking-wider">Total Payable Amount</p>
+                                <p className="text-2xl font-black text-indigo-950 mt-0.5">₹{finalPayable.toFixed(2)}</p>
+                            </div>
+
+                            {/* Available Methods Simulator */}
+                            <div className="space-y-2 text-xs">
+                                <p className="font-bold text-gray-700 text-[11px] uppercase tracking-wider">Choose Online Method</p>
+                                <div className="grid grid-cols-3 gap-2 text-center">
+                                    <div className="p-3 border border-indigo-200 bg-indigo-50/50 rounded-xl text-indigo-900 font-semibold flex flex-col items-center gap-1">
+                                        <QrCode size={18} />
+                                        <span className="text-[11px]">UPI Apps</span>
+                                    </div>
+                                    <div className="p-3 border border-gray-200 hover:border-indigo-200 rounded-xl text-gray-700 font-semibold flex flex-col items-center gap-1">
+                                        <CreditCard size={18} />
+                                        <span className="text-[11px]">Debit/Credit</span>
+                                    </div>
+                                    <div className="p-3 border border-gray-200 hover:border-indigo-200 rounded-xl text-gray-700 font-semibold flex flex-col items-center gap-1">
+                                        <span className="text-sm">🏦</span>
+                                        <span className="text-[11px]">Net Banking</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Sandbox Ready Banner */}
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 text-[11px] leading-relaxed flex items-start gap-2">
+                                <Info size={15} className="shrink-0 text-amber-600 mt-0.5" />
+                                <div>
+                                    <strong>Sandbox Mode Active:</strong> This gateway is connected and ready. Once your domain is hosted, add your Cashfree App ID &amp; Secret Key in <code className="bg-amber-100 px-1 py-0.2 rounded font-mono">backend/.env</code> to switch to live money settlements!
+                                </div>
+                            </div>
+
+                            {/* Confirm Action Button */}
+                            <div className="space-y-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => handleConfirmCashfreePayment(`CF_SANDBOX_TXN_${Date.now().toString().slice(-6)}`)}
+                                    disabled={isVerifyingPayment}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold py-3.5 rounded-xl transition-all shadow-xs text-xs flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    {isVerifyingPayment ? (
+                                        <>
+                                            <Loader2 size={14} className="animate-spin" />
+                                            <span>Processing via Cashfree...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <ShieldCheck size={16} />
+                                            <span>Simulate Successful Payment (₹{finalPayable.toFixed(2)})</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setCashfreeModalOpen(false)}
+                                    className="w-full text-center text-xs text-gray-500 hover:text-gray-800 py-1 transition-colors"
+                                >
+                                    Close &amp; Return to Checkout
+                                </button>
                             </div>
                         </div>
                     </div>

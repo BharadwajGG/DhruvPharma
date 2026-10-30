@@ -171,6 +171,48 @@ export function CartProvider({ children }) {
         setCart([])
     }
 
+    // Reorder all items from a past order into active cart
+    const reorderItems = (orderItems = []) => {
+        if (!Array.isArray(orderItems) || orderItems.length === 0) return 0
+
+        let count = 0
+        setCart((prev) => {
+            let updated = [...prev]
+            orderItems.forEach((orderItem) => {
+                if (!orderItem || !orderItem.id) return
+                const qtyToAdd = Math.max(1, parseInt(orderItem.qty) || 1)
+                const existingIdx = updated.findIndex((i) => i.id === orderItem.id)
+                if (existingIdx >= 0) {
+                    updated[existingIdx] = {
+                        ...updated[existingIdx],
+                        qty: updated[existingIdx].qty + qtyToAdd,
+                    }
+                } else {
+                    const price = orderItem.sellingPrice || orderItem.price || 0
+                    const mrp = orderItem.mrp || price
+                    const requiresRx = Boolean(orderItem.requires_rx || orderItem.requiresPrescription)
+                    updated.push({
+                        id: orderItem.id,
+                        name: orderItem.name,
+                        brand: orderItem.brand || orderItem.manufacturer || 'Generic',
+                        salt: orderItem.salt || '',
+                        category: orderItem.category || 'General',
+                        price: Number(price),
+                        mrp: Number(mrp),
+                        qty: qtyToAdd,
+                        requires_rx: requiresRx,
+                        requiresPrescription: requiresRx,
+                    })
+                }
+                count += qtyToAdd
+            })
+
+            saveStorageData(getCartStorageKey(activeAccountRef.current), updated)
+            return updated
+        })
+        return count
+    }
+
     // Computed cart values
     const totalItems = cart.reduce((sum, item) => sum + (item.qty || 1), 0)
     const subtotal = cart.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0)
@@ -192,6 +234,7 @@ export function CartProvider({ children }) {
                 updateQty,
                 removeFromCart,
                 clearCart,
+                reorderItems,
                 totalItems,
                 subtotal: Math.round(subtotal * 100) / 100,
                 totalSavings: Math.round(totalSavings * 100) / 100,

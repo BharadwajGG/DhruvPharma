@@ -57,11 +57,60 @@ const STATUS_CONFIG = {
 
 export default function MyOrdersPage() {
     const { currentUser, loading: authLoading, loginWithGoogle } = useAuth()
-    const { customerOrders } = useCart()
+    const { customerOrders, reorderItems } = useCart()
     const [orders, setOrders] = useState([])
     const [isLoading, setIsLoading] = useState(true)
     const [googleLoading, setGoogleLoading] = useState(false)
     const [authError, setAuthError] = useState('')
+
+    // Cancellation & Reorder States
+    const [cancelModalOpen, setCancelModalOpen] = useState(false)
+    const [selectedOrderToCancel, setSelectedOrderToCancel] = useState(null)
+    const [cancelReason, setCancelReason] = useState('Changed my mind / Placed by mistake')
+    const [isCancelling, setIsCancelling] = useState(false)
+    const [toastMessage, setToastMessage] = useState('')
+
+    const showToast = (msg) => {
+        setToastMessage(msg)
+        setTimeout(() => setToastMessage(''), 4000)
+    }
+
+    const handleReorder = (order) => {
+        if (!order || !Array.isArray(order.items) || order.items.length === 0) return
+        const count = reorderItems(order.items)
+        showToast(`Added ${count} medicine${count > 1 ? 's' : ''} from Order #${order.id || order.orderId} to your cart!`)
+    }
+
+    const handleConfirmCancelOrder = async () => {
+        if (!selectedOrderToCancel) return
+        setIsCancelling(true)
+        try {
+            const orderRef = selectedOrderToCancel.id || selectedOrderToCancel.orderId
+            const res = await fetch(`http://localhost:8000/api/orders/${orderRef}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: cancelReason || 'Customer cancelled via My Orders' }),
+            })
+            const result = await res.json()
+            if (!res.ok) throw new Error(result.detail || 'Failed to cancel order')
+
+            setOrders((prev) =>
+                prev.map((o) =>
+                    o.id === orderRef || o.orderId === orderRef
+                        ? { ...o, status: 'cancelled' }
+                        : o
+                )
+            )
+            setCancelModalOpen(false)
+            setSelectedOrderToCancel(null)
+            showToast(`Order #${orderRef} has been cancelled successfully.`)
+        } catch (err) {
+            console.error('Cancellation error:', err)
+            alert(err.message || 'Unable to cancel order. Please contact our pharmacist support.')
+        } finally {
+            setIsCancelling(false)
+        }
+    }
 
     // Fetch orders strictly scoped to authenticated user
     const fetchOrders = async () => {
@@ -444,10 +493,136 @@ export default function MyOrdersPage() {
                                                 </div>
                                             </div>
                                         </div>
+
+                                        {/* Card Actions: Reorder & Cancel Order */}
+                                        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100">
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleReorder(order)}
+                                                    className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+                                                >
+                                                    <RefreshCw size={13} />
+                                                    <span>Reorder Items ({items.length})</span>
+                                                </button>
+
+                                                <Link
+                                                    to="/cart"
+                                                    className="text-xs text-blue-600 hover:underline font-medium"
+                                                >
+                                                    View Cart &rarr;
+                                                </Link>
+                                            </div>
+
+                                            {/* Cancel Order capability (Active for pending or confirmed orders) */}
+                                            {(order.status === 'pending' || order.status === 'confirmed') ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedOrderToCancel(order)
+                                                        setCancelReason('Changed my mind / Placed by mistake')
+                                                        setCancelModalOpen(true)
+                                                    }}
+                                                    className="inline-flex items-center gap-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 hover:border-red-300 text-xs font-semibold px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                                                >
+                                                    <X size={13} />
+                                                    <span>Cancel Order</span>
+                                                </button>
+                                            ) : order.status === 'cancelled' ? (
+                                                <span className="text-[11px] text-red-500 font-semibold bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
+                                                    Cancelled by Customer · Items Restocked
+                                                </span>
+                                            ) : null}
+                                        </div>
                                     </div>
                                 </div>
                             )
                         })}
+                    </div>
+                )}
+
+                {/* ── Toast Notification ── */}
+                {toastMessage && (
+                    <div className="fixed bottom-6 right-6 bg-gray-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 z-50 animate-in fade-in slide-in-from-bottom-2">
+                        <CheckCircle size={15} className="text-green-400" />
+                        <span>{toastMessage}</span>
+                    </div>
+                )}
+
+                {/* ── Order Cancellation Modal ── */}
+                {cancelModalOpen && selectedOrderToCancel && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 space-y-5 border border-gray-100 shadow-2xl relative">
+                            {/* Close */}
+                            <button
+                                type="button"
+                                onClick={() => setCancelModalOpen(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto">
+                                <AlertCircle size={28} />
+                            </div>
+
+                            <div className="text-center space-y-1">
+                                <h3 className="text-xl font-bold text-gray-900">Cancel Medicine Order?</h3>
+                                <p className="text-xs text-gray-500">
+                                    Are you sure you want to cancel Order <strong className="text-gray-800 font-mono">{selectedOrderToCancel.id || selectedOrderToCancel.orderId}</strong>?
+                                </p>
+                            </div>
+
+                            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 text-xs text-gray-600 space-y-1">
+                                <p className="font-semibold text-gray-800">What happens when you cancel:</p>
+                                <ul className="list-disc pl-4 space-y-0.5 text-gray-500 text-[11px]">
+                                    <li>Order processing will stop immediately.</li>
+                                    <li>Reserved clinical medicines will be returned to store stock.</li>
+                                    <li>Any online payment will be refunded to original source.</li>
+                                </ul>
+                            </div>
+
+                            {/* Reason Selector */}
+                            <div className="space-y-1.5 text-xs">
+                                <label className="block font-semibold text-gray-700">Cancellation Reason</label>
+                                <select
+                                    value={cancelReason}
+                                    onChange={(e) => setCancelReason(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white"
+                                >
+                                    <option value="Changed my mind / Placed by mistake">Changed my mind / Placed by mistake</option>
+                                    <option value="Bought medicines from nearby local chemist">Bought medicines from nearby local chemist</option>
+                                    <option value="Need to change delivery address or contact number">Need to change delivery address or contact number</option>
+                                    <option value="Doctor revised or cancelled prescription">Doctor revised or cancelled prescription</option>
+                                    <option value="Other reason">Other reason</option>
+                                </select>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setCancelModalOpen(false)}
+                                    className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                                >
+                                    Keep Order
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleConfirmCancelOrder}
+                                    disabled={isCancelling}
+                                    className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                >
+                                    {isCancelling ? (
+                                        <>
+                                            <Loader2 size={14} className="animate-spin" />
+                                            <span>Cancelling...</span>
+                                        </>
+                                    ) : (
+                                        <span>Confirm Cancellation</span>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

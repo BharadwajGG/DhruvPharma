@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
+import { useWishlist } from '../context/WishlistContext'
 import {
     Star,
     ShoppingCart,
+    Heart,
     Upload,
     Shield,
     Truck,
@@ -21,6 +23,7 @@ import {
 export default function MedicineDetailPage() {
     const { id } = useParams()
     const { addToCart } = useCart()
+    const { isInWishlist, toggleWishlist } = useWishlist()
 
     const [medicine, setMedicine] = useState(null)
     const [isLoading, setIsLoading] = useState(true)
@@ -229,6 +232,20 @@ export default function MedicineDetailPage() {
                                             <ShoppingCart size={18} /> Add {qty > 1 ? `(${qty})` : ''} to Cart
                                         </>
                                     )}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => toggleWishlist(medicine)}
+                                    className={`inline-flex items-center justify-center gap-1.5 border px-4 py-3 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+                                        isInWishlist(medicine.id)
+                                            ? 'border-red-200 bg-red-50 text-red-600'
+                                            : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                                    }`}
+                                    title={isInWishlist(medicine.id) ? 'Saved in Wishlist' : 'Save to Wishlist'}
+                                >
+                                    <Heart size={16} className={isInWishlist(medicine.id) ? 'fill-red-500 text-red-500' : ''} />
+                                    <span>{isInWishlist(medicine.id) ? 'Saved' : 'Wishlist'}</span>
                                 </button>
 
                                 {requiresRx && (

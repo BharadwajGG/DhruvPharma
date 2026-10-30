@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
+import { useWishlist } from '../context/WishlistContext'
 import {
     Search,
     Filter,
     Star,
     Pill,
     ShoppingCart,
+    Heart,
     SlidersHorizontal,
     X,
     ChevronDown,
@@ -52,12 +54,14 @@ const SORT_OPTIONS = [
 /* ── Medicine Card ── */
 function MedicineCard({ medicine }) {
     const { addToCart } = useCart()
+    const { isInWishlist, toggleWishlist } = useWishlist()
     const [justAdded, setJustAdded] = useState(false)
 
     const mrp = medicine.mrp || 0
     const price = medicine.price || medicine.sellingPrice || 0
     const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : 0
     const requiresRx = medicine.requires_rx || medicine.requiresPrescription
+    const isSaved = isInWishlist(medicine.id)
 
     const handleAdd = () => {
         addToCart(medicine, 1)
@@ -80,6 +84,22 @@ function MedicineCard({ medicine }) {
                         Rx Required
                     </span>
                 )}
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        toggleWishlist(medicine)
+                    }}
+                    className={`absolute bottom-2 right-2 p-1.5 rounded-full shadow-2xs backdrop-blur-xs transition-transform active:scale-90 cursor-pointer ${
+                        isSaved
+                            ? 'bg-red-50 text-red-500 hover:bg-red-100'
+                            : 'bg-white/90 text-gray-400 hover:text-red-500 hover:bg-white'
+                    }`}
+                    title={isSaved ? 'Remove from Wishlist' : 'Save to Wishlist'}
+                >
+                    <Heart size={14} className={isSaved ? 'fill-red-500 text-red-500' : ''} />
+                </button>
                 {!medicine.inStock && (
                     <div className="absolute inset-0 bg-white/60 rounded-t-xl flex items-center justify-center">
                         <span className="bg-gray-700 text-white text-xs font-semibold px-3 py-1 rounded-full">
