@@ -27,7 +27,7 @@ export default function OrderViaCallWidget() {
     const [formData, setFormData] = useState({
         customerName: currentUser?.displayName || '',
         phone: '',
-        district: 'Pune',
+        district: 'Nandurbar',
         preferredTime: 'Immediate (within 15 mins)',
         medicinesNeeded: '',
     })
@@ -78,7 +78,7 @@ export default function OrderViaCallWidget() {
             setFormData({
                 customerName: currentUser?.displayName || '',
                 phone: '',
-                district: 'Pune',
+                district: 'Nandurbar',
                 preferredTime: 'Immediate (within 15 mins)',
                 medicinesNeeded: '',
             })
@@ -135,7 +135,7 @@ export default function OrderViaCallWidget() {
                                 </div>
                                 <div className="text-left">
                                     <p className="font-bold text-sm">Call Now: {PHARMACY_PHONE_DISPLAY}</p>
-                                    <p className="text-[10px] text-blue-100 font-normal">Mon–Sat · 9:00 AM to 8:00 PM</p>
+                                    <p className="text-[10px] text-blue-100 font-normal">Available 24/7 for Patient Orders</p>
                                 </div>
                             </div>
                             <span className="text-sm group-hover:translate-x-1 transition-transform">&rarr;</span>
@@ -288,24 +288,27 @@ export default function OrderViaCallWidget() {
 
                                     <div>
                                         <label className="block font-semibold text-gray-700 mb-1">
-                                            Maharashtra District
+                                            Authorized Hub / District
                                         </label>
                                         <select
                                             value={formData.district}
                                             onChange={(e) => setFormData({ ...formData, district: e.target.value })}
                                             className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white"
                                         >
-                                            <option value="Pune">Pune</option>
-                                            <option value="Nashik">Nashik</option>
-                                            <option value="Ahmednagar">Ahmednagar</option>
-                                            <option value="Aurangabad">Aurangabad (Chhatrapati Sambhajinagar)</option>
+                                            <option value="Nandurbar">Nandurbar (425412)</option>
+                                            <option value="Shahada">Shahada (425409)</option>
+                                            <option value="Taloda">Taloda (425413)</option>
+                                            <option value="Nijampur">Nijampur (424305)</option>
+                                            <option value="Akkalkuwa">Akkalkuwa (425415)</option>
+                                            <option value="Shirpur">Shirpur (424405)</option>
+                                            <option value="Sakri">Sakri (424304)</option>
                                         </select>
                                     </div>
                                 </div>
 
                                 <div>
                                     <label className="block font-semibold text-gray-700 mb-1">
-                                        Preferred Call Time
+                                        Preferred Call Time (24/7 Service)
                                     </label>
                                     <select
                                         value={formData.preferredTime}
@@ -313,9 +316,10 @@ export default function OrderViaCallWidget() {
                                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white"
                                     >
                                         <option value="Immediate (within 15 mins)">Immediate (within 15 mins)</option>
-                                        <option value="Today: 10:00 AM – 1:00 PM">Today: 10:00 AM – 1:00 PM</option>
-                                        <option value="Today: 2:00 PM – 5:00 PM">Today: 2:00 PM – 5:00 PM</option>
-                                        <option value="Evening: 6:00 PM – 8:00 PM">Evening: 6:00 PM – 8:00 PM</option>
+                                        <option value="Anytime (24/7 Available)">Anytime (24/7 Available)</option>
+                                        <option value="Morning">Morning</option>
+                                        <option value="Afternoon">Afternoon</option>
+                                        <option value="Evening">Evening</option>
                                     </select>
                                 </div>
 

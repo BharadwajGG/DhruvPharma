@@ -35,7 +35,7 @@ export default function AdminDashboard() {
     const [isLoadingReport, setIsLoadingReport] = useState(false)
     const [lastUpdated, setLastUpdated] = useState(new Date())
 
-    // New Coupon Form state
+    // New Coupon Form state with comprehensive customization
     const [newCoupon, setNewCoupon] = useState({
         code: '',
         description: '',
@@ -43,6 +43,9 @@ export default function AdminDashboard() {
         discount_value: 10,
         min_order_amount: 0,
         max_discount: null,
+        max_uses_total: null, // null = unlimited, 1 = single use total
+        max_uses_per_user: 1, // 1 = 1 time per person
+        is_active: true,
     })
     const [isCreatingCoupon, setIsCreatingCoupon] = useState(false)
     const [couponMessage, setCouponMessage] = useState(null)
@@ -166,6 +169,9 @@ export default function AdminDashboard() {
                 discount_value: parseFloat(newCoupon.discount_value) || 0,
                 min_order_amount: parseFloat(newCoupon.min_order_amount) || 0,
                 max_discount: newCoupon.max_discount ? parseFloat(newCoupon.max_discount) : null,
+                max_uses_total: newCoupon.max_uses_total ? parseInt(newCoupon.max_uses_total) : null,
+                max_uses_per_user: newCoupon.max_uses_per_user ? parseInt(newCoupon.max_uses_per_user) : 1,
+                is_active: Boolean(newCoupon.is_active),
             }
             const res = await fetch('http://localhost:8000/api/coupons', {
                 method: 'POST',
@@ -174,7 +180,7 @@ export default function AdminDashboard() {
             })
             const data = await res.json()
             if (res.ok) {
-                setCouponMessage({ type: 'success', text: `Coupon ${data.code} generated successfully!` })
+                setCouponMessage({ type: 'success', text: `Coupon ${data.coupon?.code || payload.code} created successfully (${payload.is_active ? 'Active' : 'Inactive'})!` })
                 setNewCoupon({
                     code: '',
                     description: '',
@@ -182,6 +188,9 @@ export default function AdminDashboard() {
                     discount_value: 10,
                     min_order_amount: 0,
                     max_discount: null,
+                    max_uses_total: null,
+                    max_uses_per_user: 1,
+                    is_active: true,
                 })
                 loadCoupons()
             } else {
@@ -201,8 +210,9 @@ export default function AdminDashboard() {
             })
             if (res.ok) {
                 const updated = await res.json()
+                const newActive = updated.isActive !== undefined ? updated.isActive : updated.is_active
                 setCoupons((prev) =>
-                    prev.map((c) => (c.id === couponId ? { ...c, is_active: updated.is_active } : c))
+                    prev.map((c) => (c.id === couponId ? { ...c, is_active: newActive, isActive: newActive } : c))
                 )
             }
         } catch (err) {
@@ -476,134 +486,143 @@ export default function AdminDashboard() {
                 ══════════════════════════════════════════════ */}
                 {activeTab === 'reports' && (
                     <div className="space-y-6">
-                        {/* 4 Financial Metric Cards */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
-                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Total Sales Revenue</span>
-                                <p className="text-2xl font-black text-blue-700 mt-1">
-                                    ₹{salesReport ? salesReport.total_revenue.toLocaleString('en-IN') : '0'}
-                                </p>
-                                <span className="text-[11px] text-emerald-600 font-semibold mt-1 inline-flex items-center gap-1">
-                                    <CheckCircle size={11} /> Completed + Active
-                                </span>
+                        {isLoadingReport && !salesReport ? (
+                            <div className="bg-white p-12 rounded-2xl border border-gray-100 flex flex-col items-center justify-center gap-3">
+                                <Loader2 className="animate-spin text-blue-600" size={32} />
+                                <p className="text-xs text-gray-500 font-medium">Loading sales analytics &amp; financial metrics...</p>
                             </div>
-
-                            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
-                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Average Order Value</span>
-                                <p className="text-2xl font-black text-gray-900 mt-1">
-                                    ₹{salesReport ? salesReport.avg_order_value.toLocaleString('en-IN') : '0'}
-                                </p>
-                                <span className="text-[11px] text-gray-500 mt-1 block">Per non-cancelled order</span>
-                            </div>
-
-                            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
-                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Delivered Orders</span>
-                                <p className="text-2xl font-black text-emerald-600 mt-1">
-                                    {salesReport ? salesReport.delivered_orders : 0}
-                                </p>
-                                <span className="text-[11px] text-gray-500 mt-1 block">
-                                    Out of {salesReport ? salesReport.total_orders : 0} total orders
-                                </span>
-                            </div>
-
-                            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
-                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Pending Fulfillment</span>
-                                <p className="text-2xl font-black text-orange-600 mt-1">
-                                    {salesReport ? salesReport.pending_orders : 0}
-                                </p>
-                                <span className="text-[11px] text-orange-700 mt-1 block">Awaiting dispatch</span>
-                            </div>
-                        </div>
-
-                        {/* Row: Top Selling Medicines + Payment Split */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Top Selling Medicines (2 cols) */}
-                            <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <Award size={18} className="text-amber-500" />
-                                        <h3 className="font-bold text-gray-900 text-sm">Top-Selling Medicines</h3>
+                        ) : (
+                            <>
+                                {/* 4 Financial Metric Cards */}
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
+                                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Total Sales Revenue</span>
+                                        <p className="text-2xl font-black text-blue-700 mt-1">
+                                            ₹{(salesReport?.total_revenue ?? salesReport?.totalRevenue ?? 0).toLocaleString('en-IN')}
+                                        </p>
+                                        <span className="text-[11px] text-emerald-600 font-semibold mt-1 inline-flex items-center gap-1">
+                                            <CheckCircle size={11} /> Completed + Active
+                                        </span>
                                     </div>
-                                    <span className="text-xs text-gray-400 font-mono">By Units Sold</span>
+
+                                    <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
+                                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Average Order Value</span>
+                                        <p className="text-2xl font-black text-gray-900 mt-1">
+                                            ₹{(salesReport?.avg_order_value ?? salesReport?.averageOrderValue ?? 0).toLocaleString('en-IN')}
+                                        </p>
+                                        <span className="text-[11px] text-gray-500 mt-1 block">Per non-cancelled order</span>
+                                    </div>
+
+                                    <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
+                                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Delivered Orders</span>
+                                        <p className="text-2xl font-black text-emerald-600 mt-1">
+                                            {salesReport?.delivered_orders ?? salesReport?.deliveredOrders ?? 0}
+                                        </p>
+                                        <span className="text-[11px] text-gray-500 mt-1 block">
+                                            Out of {salesReport?.total_orders ?? salesReport?.totalOrders ?? 0} total orders
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs">
+                                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Pending Fulfillment</span>
+                                        <p className="text-2xl font-black text-orange-600 mt-1">
+                                            {salesReport?.pending_orders ?? salesReport?.pendingOrders ?? 0}
+                                        </p>
+                                        <span className="text-[11px] text-orange-700 mt-1 block">Awaiting dispatch</span>
+                                    </div>
                                 </div>
 
-                                {salesReport && salesReport.top_medicines && salesReport.top_medicines.length > 0 ? (
-                                    <div className="divide-y divide-gray-100">
-                                        {salesReport.top_medicines.map((med, idx) => (
-                                            <div key={idx} className="py-3 flex items-center justify-between text-xs">
-                                                <div className="flex items-center gap-3">
-                                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] ${
-                                                        idx === 0 ? 'bg-amber-100 text-amber-800' :
-                                                        idx === 1 ? 'bg-gray-200 text-gray-800' :
-                                                        idx === 2 ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'
-                                                    }`}>
-                                                        {idx + 1}
-                                                    </span>
-                                                    <div>
-                                                        <p className="font-bold text-gray-900">{med.name}</p>
-                                                        <p className="text-[11px] text-gray-400">Total Revenue: ₹{med.revenue.toLocaleString('en-IN')}</p>
+                                {/* Row: Top Selling Medicines + Payment Split */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                    {/* Top Selling Medicines (2 cols) */}
+                                    <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Award size={18} className="text-amber-500" />
+                                                <h3 className="font-bold text-gray-900 text-sm">Top-Selling Medicines</h3>
+                                            </div>
+                                            <span className="text-xs text-gray-400 font-mono">By Units Sold</span>
+                                        </div>
+
+                                        {(salesReport?.top_medicines || salesReport?.topSelling) && (salesReport.top_medicines || salesReport.topSelling).length > 0 ? (
+                                            <div className="divide-y divide-gray-100">
+                                                {(salesReport.top_medicines || salesReport.topSelling).map((med, idx) => (
+                                                    <div key={idx} className="py-3 flex items-center justify-between text-xs">
+                                                        <div className="flex items-center gap-3">
+                                                            <span className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] ${
+                                                                idx === 0 ? 'bg-amber-100 text-amber-800' :
+                                                                idx === 1 ? 'bg-gray-200 text-gray-800' :
+                                                                idx === 2 ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'
+                                                            }`}>
+                                                                {idx + 1}
+                                                            </span>
+                                                            <div>
+                                                                <p className="font-bold text-gray-900">{med.name}</p>
+                                                                <p className="text-[11px] text-gray-400">Total Revenue: ₹{(med.revenue ?? 0).toLocaleString('en-IN')}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span className="font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
+                                                                {med.units ?? med.unitsSold ?? 0} units
+                                                            </span>
+                                                        </div>
                                                     </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-400 py-6 text-center">No sales data recorded yet.</p>
+                                        )}
+                                    </div>
+
+                                    {/* Payment Methods & Regional Breakdown (1 col) */}
+                                    <div className="space-y-6">
+                                        {/* Payment Methods */}
+                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
+                                            <div className="flex items-center gap-2">
+                                                <CreditCard size={18} className="text-blue-600" />
+                                                <h3 className="font-bold text-gray-900 text-sm">Payment Methods</h3>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 text-xs">
+                                                    <span className="font-semibold text-gray-700">Cash on Delivery (COD)</span>
+                                                    <span className="font-bold text-blue-700">
+                                                        {(salesReport?.payment_methods?.COD ?? salesReport?.paymentMethods?.COD ?? 0)} orders
+                                                    </span>
                                                 </div>
-                                                <div className="text-right">
-                                                    <span className="font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
-                                                        {med.units} units
+                                                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 text-xs">
+                                                    <span className="font-semibold text-gray-700">Online UPI / QR</span>
+                                                    <span className="font-bold text-purple-700">
+                                                        {(salesReport?.payment_methods?.UPI ?? salesReport?.paymentMethods?.UPI ?? 0)} orders
                                                     </span>
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-xs text-gray-400 py-6 text-center">No sales data recorded yet.</p>
-                                )}
-                            </div>
-
-                            {/* Payment Methods & Regional Breakdown (1 col) */}
-                            <div className="space-y-6">
-                                {/* Payment Methods */}
-                                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
-                                    <div className="flex items-center gap-2">
-                                        <CreditCard size={18} className="text-blue-600" />
-                                        <h3 className="font-bold text-gray-900 text-sm">Payment Methods</h3>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 text-xs">
-                                            <span className="font-semibold text-gray-700">Cash on Delivery (COD)</span>
-                                            <span className="font-bold text-blue-700">
-                                                {salesReport?.payment_methods?.COD || 0} orders
-                                            </span>
                                         </div>
-                                        <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 text-xs">
-                                            <span className="font-semibold text-gray-700">Online UPI / QR</span>
-                                            <span className="font-bold text-purple-700">
-                                                {salesReport?.payment_methods?.UPI || 0} orders
-                                            </span>
+
+                                        {/* Regional Delivery Breakdown */}
+                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
+                                            <div className="flex items-center gap-2">
+                                                <MapPin size={18} className="text-emerald-600" />
+                                                <h3 className="font-bold text-gray-900 text-sm">Hub Delivery Orders</h3>
+                                            </div>
+                                            <div className="space-y-1.5 text-xs">
+                                                {(salesReport?.district_sales || salesReport?.districtSales) && Object.keys(salesReport.district_sales || salesReport.districtSales).length > 0 ? (
+                                                    Object.entries(salesReport.district_sales || salesReport.districtSales).map(([district, count]) => (
+                                                        <div key={district} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                                                            <span className="text-gray-600 font-medium">{district}</span>
+                                                            <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
+                                                                {count} orders
+                                                            </span>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <p className="text-xs text-gray-400 py-2">No regional breakdown yet.</p>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-
-                                {/* Regional Delivery Breakdown */}
-                                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
-                                    <div className="flex items-center gap-2">
-                                        <MapPin size={18} className="text-emerald-600" />
-                                        <h3 className="font-bold text-gray-900 text-sm">Hub Delivery Orders</h3>
-                                    </div>
-                                    <div className="space-y-1.5 text-xs">
-                                        {salesReport && salesReport.district_sales && Object.keys(salesReport.district_sales).length > 0 ? (
-                                            Object.entries(salesReport.district_sales).map(([district, count]) => (
-                                                <div key={district} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                                                    <span className="text-gray-600 font-medium">{district}</span>
-                                                    <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
-                                                        {count} orders
-                                                    </span>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <p className="text-xs text-gray-400 py-2">No regional breakdown yet.</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -640,7 +659,7 @@ export default function AdminDashboard() {
                                     <label className="block font-bold text-gray-700 mb-1">Coupon Code *</label>
                                     <input
                                         type="text"
-                                        placeholder="e.g. FESTIVE20"
+                                        placeholder="e.g. FESTIVE20 or DHRUV100"
                                         value={newCoupon.code}
                                         onChange={(e) => setNewCoupon({ ...newCoupon, code: e.target.value.toUpperCase() })}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-xl font-mono uppercase font-bold outline-none focus:border-blue-500"
@@ -668,7 +687,7 @@ export default function AdminDashboard() {
                                         type="number"
                                         min="1"
                                         step="0.5"
-                                        placeholder="e.g. 10"
+                                        placeholder="e.g. 10 or 50"
                                         value={newCoupon.discount_value}
                                         onChange={(e) => setNewCoupon({ ...newCoupon, discount_value: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-xl outline-none focus:border-blue-500"
@@ -701,14 +720,75 @@ export default function AdminDashboard() {
                                 </div>
 
                                 <div>
+                                    <label className="block font-bold text-gray-700 mb-1">Per-Customer Limit *</label>
+                                    <select
+                                        value={newCoupon.max_uses_per_user === null ? 'null' : newCoupon.max_uses_per_user}
+                                        onChange={(e) => setNewCoupon({ ...newCoupon, max_uses_per_user: e.target.value === 'null' ? null : parseInt(e.target.value) })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl outline-none focus:border-blue-500 bg-white"
+                                    >
+                                        <option value={1}>1 Time Per Customer (Single use per person)</option>
+                                        <option value={2}>2 Times Per Customer</option>
+                                        <option value={3}>3 Times Per Customer</option>
+                                        <option value="null">Unlimited Uses Per Customer</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block font-bold text-gray-700 mb-1">Total Overall Uses Limit *</label>
+                                    <select
+                                        value={newCoupon.max_uses_total === null ? 'null' : newCoupon.max_uses_total}
+                                        onChange={(e) => setNewCoupon({ ...newCoupon, max_uses_total: e.target.value === 'null' ? null : parseInt(e.target.value) })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl outline-none focus:border-blue-500 bg-white"
+                                    >
+                                        <option value="null">Unlimited Overall Uses</option>
+                                        <option value={1}>1 Time Total (Single-Use Global Code)</option>
+                                        <option value={10}>First 10 Customers Total</option>
+                                        <option value={25}>First 25 Customers Total</option>
+                                        <option value={50}>First 50 Customers Total</option>
+                                        <option value={100}>First 100 Customers Total</option>
+                                        <option value={500}>First 500 Customers Total</option>
+                                    </select>
+                                </div>
+
+                                <div>
                                     <label className="block font-bold text-gray-700 mb-1">Offer Description</label>
                                     <input
                                         type="text"
-                                        placeholder="e.g. Get 10% off on all medicines"
+                                        placeholder="e.g. Special festive 10% off on all medicines"
                                         value={newCoupon.description}
                                         onChange={(e) => setNewCoupon({ ...newCoupon, description: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-xl outline-none focus:border-blue-500"
                                     />
+                                </div>
+
+                                <div>
+                                    <label className="block font-bold text-gray-700 mb-1">Initial Status</label>
+                                    <div className="flex items-center gap-3 mt-2">
+                                        <label className="flex items-center gap-1.5 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="is_active"
+                                                checked={newCoupon.is_active === true}
+                                                onChange={() => setNewCoupon({ ...newCoupon, is_active: true })}
+                                                className="accent-emerald-600"
+                                            />
+                                            <span className="text-emerald-700 font-bold text-xs flex items-center gap-1">
+                                                <CheckCircle size={13} /> Active
+                                            </span>
+                                        </label>
+                                        <label className="flex items-center gap-1.5 cursor-pointer">
+                                            <input
+                                                type="radio"
+                                                name="is_active"
+                                                checked={newCoupon.is_active === false}
+                                                onChange={() => setNewCoupon({ ...newCoupon, is_active: false })}
+                                                className="accent-gray-600"
+                                            />
+                                            <span className="text-gray-500 font-bold text-xs flex items-center gap-1">
+                                                <AlertCircle size={13} /> Inactive
+                                            </span>
+                                        </label>
+                                    </div>
                                 </div>
 
                                 <div className="md:col-span-3 pt-2">
@@ -718,7 +798,7 @@ export default function AdminDashboard() {
                                         className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold px-6 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
                                     >
                                         <Plus size={15} />
-                                        {isCreatingCoupon ? 'Creating...' : 'Create & Activate Coupon'}
+                                        {isCreatingCoupon ? 'Creating...' : 'Create & Save Coupon'}
                                     </button>
                                 </div>
                             </form>
@@ -727,8 +807,11 @@ export default function AdminDashboard() {
                         {/* Existing Coupons Table */}
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                                <h3 className="font-bold text-gray-900 text-sm">Active Promotion Codes ({coupons.length})</h3>
-                                <span className="text-xs text-gray-400">Auto-validated in customer cart</span>
+                                <div>
+                                    <h3 className="font-bold text-gray-900 text-sm">Configured Promotion Codes ({coupons.length})</h3>
+                                    <p className="text-xs text-gray-400">Toggle status anytime. Inactive coupons are immediately rejected at checkout.</p>
+                                </div>
+                                <span className="text-xs text-gray-400 font-mono">Live Validation</span>
                             </div>
 
                             <div className="overflow-x-auto">
@@ -738,61 +821,85 @@ export default function AdminDashboard() {
                                             <th className="py-3 px-4">Coupon Code</th>
                                             <th className="py-3 px-4">Offer Value</th>
                                             <th className="py-3 px-4">Min Order</th>
-                                            <th className="py-3 px-4">Max Cap</th>
+                                            <th className="py-3 px-4">Usage Limits</th>
                                             <th className="py-3 px-4 text-center">Usage Count</th>
-                                            <th className="py-3 px-4 text-center">Status</th>
+                                            <th className="py-3 px-4 text-center">Status (Click to Toggle)</th>
                                             <th className="py-3 px-4 text-center">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {coupons.map((c) => (
-                                            <tr key={c.id} className="hover:bg-blue-50/20 transition-colors">
-                                                <td className="py-3.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap">
-                                                    <span className="bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-xs">
-                                                        {c.code}
-                                                    </span>
-                                                    {c.description && (
-                                                        <p className="text-[11px] text-gray-400 font-sans font-normal mt-0.5">
-                                                            {c.description}
-                                                        </p>
-                                                    )}
-                                                </td>
-                                                <td className="py-3.5 px-4 font-bold text-gray-900">
-                                                    {c.discount_type === 'percentage' ? `${c.discount_value}% OFF` : `₹${c.discount_value} FLAT`}
-                                                </td>
-                                                <td className="py-3.5 px-4 text-gray-600">
-                                                    {c.min_order_amount > 0 ? `₹${c.min_order_amount}` : 'None'}
-                                                </td>
-                                                <td className="py-3.5 px-4 text-gray-600">
-                                                    {c.max_discount ? `₹${c.max_discount}` : 'Unlimited'}
-                                                </td>
-                                                <td className="py-3.5 px-4 text-center font-bold text-gray-700">
-                                                    {c.usage_count || 0} times
-                                                </td>
-                                                <td className="py-3.5 px-4 text-center">
-                                                    <button
-                                                        onClick={() => handleToggleCoupon(c.id)}
-                                                        className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border cursor-pointer transition-colors ${
-                                                            c.is_active
-                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                                                : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'
-                                                        }`}
-                                                        title="Click to toggle active status"
-                                                    >
-                                                        {c.is_active ? 'Active' : 'Inactive'}
-                                                    </button>
-                                                </td>
-                                                <td className="py-3.5 px-4 text-center">
-                                                    <button
-                                                        onClick={() => handleDeleteCoupon(c.id)}
-                                                        className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                                                        title="Delete coupon"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {coupons.map((c) => {
+                                            const isActive = c.is_active !== undefined ? c.is_active : c.isActive
+                                            const maxTotal = c.max_uses_total !== undefined ? c.max_uses_total : c.maxUsesTotal
+                                            const maxPerUser = c.max_uses_per_user !== undefined ? c.max_uses_per_user : c.maxUsesPerUser
+                                            const usage = c.usage_count !== undefined ? c.usage_count : c.usageCount || 0
+
+                                            return (
+                                                <tr key={c.id} className="hover:bg-blue-50/20 transition-colors">
+                                                    <td className="py-3.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap">
+                                                        <span className="bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-xs">
+                                                            {c.code}
+                                                        </span>
+                                                        {c.description && (
+                                                            <p className="text-[11px] text-gray-400 font-sans font-normal mt-0.5">
+                                                                {c.description}
+                                                            </p>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-3.5 px-4 font-bold text-gray-900">
+                                                        {(c.discount_type || c.discountType) === 'percentage'
+                                                            ? `${c.discount_value || c.discountValue}% OFF`
+                                                            : `₹${c.discount_value || c.discountValue} FLAT`}
+                                                        {(c.max_discount || c.maxDiscount) && (c.discount_type || c.discountType) === 'percentage' && (
+                                                            <span className="text-[10px] text-gray-400 block font-normal">Cap: ₹{c.max_discount || c.maxDiscount}</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-3.5 px-4 text-gray-600">
+                                                        {(c.min_order_amount || c.minOrderAmount) > 0 ? `₹${c.min_order_amount || c.minOrderAmount}` : 'None'}
+                                                    </td>
+                                                    <td className="py-3.5 px-4">
+                                                        <span className="font-semibold text-gray-800 block">
+                                                            {maxPerUser === 1 ? '👤 1 time per person' : maxPerUser ? `👤 ${maxPerUser}x per person` : '👤 Unlimited/person'}
+                                                        </span>
+                                                        <span className="text-[10px] text-gray-400 block">
+                                                            {maxTotal === 1 ? '⚡ Single-use (1 total)' : maxTotal ? `🎯 Max ${maxTotal} total uses` : '🌐 Unlimited total'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3.5 px-4 text-center">
+                                                        <span className="font-bold text-gray-800">{usage}</span>
+                                                        {maxTotal ? (
+                                                            <span className="text-[10px] text-gray-400 block">of {maxTotal}</span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-gray-400 block">times</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-3.5 px-4 text-center">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleCoupon(c.id)}
+                                                            className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border cursor-pointer transition-all active:scale-95 shadow-2xs ${
+                                                                isActive
+                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                                                    : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
+                                                            }`}
+                                                            title="Click to toggle Active / Inactive"
+                                                        >
+                                                            <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+                                                            <span>{isActive ? 'Active' : 'Inactive'}</span>
+                                                        </button>
+                                                    </td>
+                                                    <td className="py-3.5 px-4 text-center">
+                                                        <button
+                                                            onClick={() => handleDeleteCoupon(c.id)}
+                                                            className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                                                            title="Delete coupon"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
 
                                         {coupons.length === 0 && (
                                             <tr>

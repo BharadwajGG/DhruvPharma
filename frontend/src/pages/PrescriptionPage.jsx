@@ -24,8 +24,15 @@ const STEPS = [
 export default function PrescriptionPage() {
     const { selectedLocation, serviceableAreas } = useDelivery()
     const fileInputRef               = useRef(null)
+    const cameraInputRef             = useRef(null)
+    const videoRef                   = useRef(null)
+    const streamRef                  = useRef(null)
+
     const [files, setFiles]          = useState([])
     const [dragActive, setDragActive] = useState(false)
+    const [cameraModalOpen, setCameraModalOpen] = useState(false)
+    const [cameraError, setCameraError] = useState('')
+    const [isStartingCamera, setIsStartingCamera] = useState(false)
     const [formData, setFormData]    = useState({
         patientName:  '',
         phone:        '',
@@ -39,6 +46,15 @@ export default function PrescriptionPage() {
             setFormData((prev) => ({ ...prev, district: selectedLocation.name }))
         }
     }, [selectedLocation])
+
+    // Cleanup camera stream on unmount
+    useEffect(() => {
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach((track) => track.stop())
+            }
+        }
+    }, [])
     const [submitted, setSubmitted]      = useState(false)
     const [submittedRxId, setSubmittedRxId] = useState('')
     const [isUploading, setIsUploading]  = useState(false)
@@ -61,6 +77,72 @@ export default function PrescriptionPage() {
         e.preventDefault()
         setDragActive(false)
         handleFiles(e.dataTransfer.files)
+    }
+
+    /* ── Camera Handling (Mobile Native Camera & Desktop Live Viewfinder) ── */
+    const handleCameraClick = async () => {
+        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        
+        // On mobile: immediately open native system camera
+        if (isMobileDevice) {
+            if (cameraInputRef.current) {
+                cameraInputRef.current.click()
+            }
+            return
+        }
+
+        // On desktop/laptop: open webcam modal viewfinder
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            setCameraModalOpen(true)
+            setCameraError('')
+            setIsStartingCamera(true)
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                })
+                streamRef.current = stream
+                setTimeout(() => {
+                    if (videoRef.current) {
+                        videoRef.current.srcObject = stream
+                        videoRef.current.play().catch(() => {})
+                    }
+                }, 150)
+            } catch (err) {
+                console.warn('Webcam stream error:', err)
+                setCameraError('Camera access was not granted or no webcam was detected on this device. You can select an image file directly.')
+            } finally {
+                setIsStartingCamera(false)
+            }
+        } else if (cameraInputRef.current) {
+            cameraInputRef.current.click()
+        }
+    }
+
+    const closeCameraModal = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop())
+            streamRef.current = null
+        }
+        setCameraModalOpen(false)
+        setCameraError('')
+    }
+
+    const captureWebcamPhoto = () => {
+        if (!videoRef.current) return
+        const video = videoRef.current
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth || 1280
+        canvas.height = video.videoHeight || 720
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+        canvas.toBlob((blob) => {
+            if (blob) {
+                const file = new File([blob], `prescription_photo_${Date.now()}.jpg`, { type: 'image/jpeg' })
+                handleFiles([file])
+                closeCameraModal()
+            }
+        }, 'image/jpeg', 0.92)
     }
 
     const validate = () => {
@@ -249,6 +331,15 @@ export default function PrescriptionPage() {
                                         className="hidden"
                                         onChange={(e) => handleFiles(e.target.files)}
                                     />
+                                    {/* Direct Mobile/Device Camera Capture Input */}
+                                    <input
+                                        ref={cameraInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        capture="environment"
+                                        className="hidden"
+                                        onChange={(e) => handleFiles(e.target.files)}
+                                    />
                                     <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                         <Upload size={24} className="text-blue-600" />
                                     </div>
@@ -270,17 +361,18 @@ export default function PrescriptionPage() {
                                 <div className="flex gap-3 mt-4">
                                     <button
                                         type="button"
-                                        onClick={() => fileInputRef.current.click()}
-                                        className="flex-1 flex items-center justify-center gap-2 border border-blue-200 text-blue-600 hover:bg-blue-50 text-sm font-medium py-2.5 rounded-xl transition-colors"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="flex-1 flex items-center justify-center gap-2 border border-blue-200 text-blue-600 hover:bg-blue-50 text-sm font-medium py-2.5 rounded-xl transition-colors cursor-pointer"
                                     >
                                         <Image size={15} /> Select Image
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => fileInputRef.current.click()}
-                                        className="flex-1 flex items-center justify-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl transition-colors"
+                                        onClick={handleCameraClick}
+                                        className="flex-1 flex items-center justify-center gap-2 border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-medium py-2.5 rounded-xl transition-colors cursor-pointer"
                                     >
-                                        <Camera size={15} /> Camera
+                                        <Camera size={15} className="text-blue-600" />
+                                        <span>Camera</span>
                                     </button>
                                 </div>
 
@@ -503,6 +595,92 @@ export default function PrescriptionPage() {
                     </div>
                 </form>
             </div>
+
+            {/* ── Live Camera Viewfinder Modal ── */}
+            {cameraModalOpen && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col border border-gray-100 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="p-4 bg-gray-950 text-white flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Camera size={18} className="text-blue-400" />
+                                <span className="font-bold text-sm">Prescription Camera Viewfinder</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeCameraModal}
+                                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="relative bg-black aspect-[4/3] flex items-center justify-center overflow-hidden">
+                            {isStartingCamera && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2 z-20 bg-gray-900">
+                                    <Loader2 className="animate-spin text-blue-400" size={36} />
+                                    <p className="text-xs font-semibold">Starting camera stream...</p>
+                                </div>
+                            )}
+
+                            {cameraError ? (
+                                <div className="p-6 text-center text-white space-y-3">
+                                    <AlertCircle size={36} className="text-amber-400 mx-auto" />
+                                    <p className="text-xs text-gray-200 max-w-xs mx-auto leading-relaxed">{cameraError}</p>
+                                    <div className="pt-2 flex justify-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                closeCameraModal()
+                                                cameraInputRef.current?.click()
+                                            }}
+                                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all"
+                                        >
+                                            Select from Storage Instead
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <video
+                                        ref={videoRef}
+                                        autoPlay
+                                        playsInline
+                                        muted
+                                        className="w-full h-full object-cover"
+                                    />
+                                    {/* Alignment Frame overlay */}
+                                    <div className="absolute inset-6 border-2 border-dashed border-white/70 rounded-2xl pointer-events-none flex items-center justify-center">
+                                        <span className="text-[11px] text-white bg-black/60 backdrop-blur-sm px-3.5 py-1.5 rounded-full font-medium">
+                                            Align prescription within this frame
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {!cameraError && (
+                            <div className="p-4 bg-gray-950 flex items-center justify-between">
+                                <button
+                                    type="button"
+                                    onClick={closeCameraModal}
+                                    className="text-gray-400 hover:text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={captureWebcamPhoto}
+                                    disabled={isStartingCamera}
+                                    className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs sm:text-sm px-6 py-2.5 rounded-full shadow-lg flex items-center gap-2 cursor-pointer transition-all"
+                                >
+                                    <Camera size={16} />
+                                    <span>Capture Photo</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

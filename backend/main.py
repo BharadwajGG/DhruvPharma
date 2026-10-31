@@ -127,11 +127,13 @@ def backfill_brand_pack_shots():
     """Auto-links matching medicines in database to genuine manufacturer pack shot URLs."""
     db = SessionLocal()
     try:
-        meds = db.query(MedicineModel).all()
+        meds = db.query(MedicineModel).filter(
+            or_(MedicineModel.image_url == None, MedicineModel.image_url == "")
+        ).all()
         updated = 0
         for m in meds:
             pack_url = resolve_brand_pack_shot(m.name, m.manufacturer)
-            if pack_url and (not m.image_url or m.image_url != pack_url):
+            if pack_url:
                 m.image_url = pack_url
                 updated += 1
         if updated > 0:
@@ -264,6 +266,7 @@ async def place_order(
     totalAmount: float = Form(...),
     paymentMethod: Optional[str] = Form("COD"),
     notes: Optional[str] = Form(""),
+    couponCode: Optional[str] = Form(""),
     prescriptionFile: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
@@ -340,6 +343,24 @@ async def place_order(
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
+
+    # Track coupon usage if redeemed
+    if couponCode:
+        c = db.query(CouponModel).filter(CouponModel.code == couponCode.strip().upper()).first()
+        if c:
+            c.usage_count = (c.usage_count or 0) + 1
+            user_ident = (phone or userId or email or "").strip().lower()
+            if user_ident:
+                try:
+                    used_list = json.loads(c.used_by) if c.used_by else []
+                except Exception:
+                    used_list = []
+                used_list.append(user_ident)
+                c.used_by = json.dumps(used_list)
+            # If total limit reached, auto-deactivate
+            if c.max_uses_total is not None and c.usage_count >= c.max_uses_total:
+                c.is_active = False
+            db.commit()
 
     order_dict = new_order.to_dict()
 
@@ -1493,88 +1514,90 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
        Fallback: latest catalog additions/restocks.
     """
     # ── 1. TRENDING MEDICINES ──
-    # Tally units sold from all non-cancelled orders
     orders = db.query(OrderModel).filter(OrderModel.status != "cancelled").all()
-    sales_map = {}  # { medicine_name_or_id: units_sold }
+    sales_map = {}  # { int(id): units_sold }
     for o in orders:
         try:
             items = json.loads(o.items) if isinstance(o.items, str) else (o.items or [])
             for it in items:
                 m_id = it.get("id")
-                name = it.get("name")
                 qty = it.get("qty", 1)
                 if m_id:
-                    sales_map[f"id_{m_id}"] = sales_map.get(f"id_{m_id}", 0) + qty
-                if name:
-                    sales_map[f"name_{name.strip().lower()}"] = sales_map.get(f"name_{name.strip().lower()}", 0) + qty
+                    try:
+                        int_id = int(m_id)
+                        sales_map[int_id] = sales_map.get(int_id, 0) + qty
+                    except (ValueError, TypeError):
+                        pass
         except Exception:
             pass
 
-    published_meds = db.query(MedicineModel).filter(MedicineModel.is_published == True).all()
-
-    # Score each published medicine based on real order sales
-    scored_trending = []
-    for m in published_meds:
-        units = sales_map.get(f"id_{m.id}", 0) + sales_map.get(f"name_{m.name.strip().lower()}", 0)
-        m_dict = m.to_dict()
-        m_dict["units_sold"] = units
-        scored_trending.append((units, m_dict))
-
-    # Sort descending by units sold
-    scored_trending.sort(key=lambda x: x[0], reverse=True)
-
+    trending_ids = sorted(sales_map.keys(), key=lambda i: sales_map[i], reverse=True)
     trending_list = []
-    actual_sales_items = [item for units, item in scored_trending if units > 0]
-    if len(actual_sales_items) >= 4:
-        for it in actual_sales_items[:8]:
-            it["badge"] = "🔥 Trending Now"
-            it["badge_type"] = "trending"
-            trending_list.append(it)
-    else:
-        # Fallback / supplement with top medicines
-        for units, it in scored_trending[:8]:
-            it["badge"] = "🔥 Trending Now" if units > 0 else "⭐ Popular Demand"
-            it["badge_type"] = "trending"
-            trending_list.append(it)
+
+    if trending_ids:
+        ordered_meds = db.query(MedicineModel).filter(
+            MedicineModel.id.in_(trending_ids),
+            MedicineModel.is_published == True
+        ).all()
+        med_by_id = {m.id: m for m in ordered_meds}
+        for tid in trending_ids:
+            if tid in med_by_id:
+                d = med_by_id[tid].to_dict()
+                d["units_sold"] = sales_map.get(tid, 0)
+                d["badge"] = "🔥 Trending Now"
+                d["badge_type"] = "trending"
+                trending_list.append(d)
+                if len(trending_list) >= 8:
+                    break
+
+    # If fewer than 8 trending from order sales, fill with high-demand published medicines
+    if len(trending_list) < 8:
+        existing_ids = {item["id"] for item in trending_list}
+        needed = 8 - len(trending_list)
+        fallback_query = db.query(MedicineModel).filter(MedicineModel.is_published == True)
+        if existing_ids:
+            fallback_query = fallback_query.filter(~MedicineModel.id.in_(existing_ids))
+        fallback_meds = fallback_query.order_by(MedicineModel.stock_quantity.desc(), MedicineModel.id.asc()).limit(needed).all()
+
+        for m in fallback_meds:
+            d = m.to_dict()
+            d["units_sold"] = 0
+            d["badge"] = "⭐ Popular Demand"
+            d["badge_type"] = "trending"
+            trending_list.append(d)
 
     # ── 2. NEW LAUNCHES ──
-    # Sort published medicines by created_at DESC, id DESC
-    newest_meds = sorted(
-        published_meds,
-        key=lambda m: (m.created_at or datetime.min, m.id),
-        reverse=True
-    )
+    # Directly query the 8 newest published medicines by created_at DESC, id DESC
+    newest_meds = db.query(MedicineModel).filter(
+        MedicineModel.is_published == True
+    ).order_by(MedicineModel.created_at.desc(), MedicineModel.id.desc()).limit(8).all()
 
     now = datetime.utcnow()
     thirty_days_ago = now - timedelta(days=30)
-    recent_items = [m for m in newest_meds if m.created_at and m.created_at >= thirty_days_ago]
 
     new_launches_list = []
-    if len(recent_items) >= 3:
-        for m in recent_items[:8]:
-            d = m.to_dict()
+    for m in newest_meds:
+        d = m.to_dict()
+        if m.created_at and m.created_at >= thirty_days_ago:
             d["badge"] = "✨ New Launch"
             d["badge_type"] = "new_arrival"
             d["is_new_arrival"] = True
-            new_launches_list.append(d)
-    else:
-        # Graceful fallback: take the latest additions to the catalog
-        # so the section is always populated and looks active
-        for m in newest_meds[:8]:
-            d = m.to_dict()
+        else:
             d["badge"] = "✨ Recent Restock"
             d["badge_type"] = "new_arrival"
             d["is_new_arrival"] = True
-            new_launches_list.append(d)
+        new_launches_list.append(d)
+
+    total_count = db.query(MedicineModel).filter(MedicineModel.is_published == True).count()
 
     return {
         "trending": trending_list,
         "new_launches": new_launches_list,
         "meta": {
-            "total_catalog": len(published_meds),
+            "total_catalog": total_count,
             "trending_count": len(trending_list),
             "new_launches_count": len(new_launches_list),
-            "has_live_sales_data": len(actual_sales_items) > 0,
+            "has_live_sales_data": len(trending_ids) > 0,
         }
     }
 
@@ -1617,11 +1640,15 @@ class CouponCreateRequest(BaseModel):
     min_order_amount: Optional[float] = 0.0
     max_discount: Optional[float] = 500.0
     is_active: Optional[bool] = True
+    max_uses_total: Optional[int] = None
+    max_uses_per_user: Optional[int] = 1
 
 
 class CouponValidateRequest(BaseModel):
     code: str
     subtotal: float
+    userId: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 @app.get("/api/coupons")
@@ -1645,8 +1672,12 @@ def create_coupon(payload: CouponCreateRequest, db: Session = Depends(get_db)):
         discount_type=payload.discount_type or "percentage",
         discount_value=float(payload.discount_value),
         min_order_amount=float(payload.min_order_amount or 0.0),
-        max_discount=float(payload.max_discount or 500.0),
-        is_active=bool(payload.is_active),
+        max_discount=float(payload.max_discount or 500.0) if payload.max_discount is not None else None,
+        is_active=bool(payload.is_active) if payload.is_active is not None else True,
+        max_uses_total=int(payload.max_uses_total) if payload.max_uses_total is not None and int(payload.max_uses_total) > 0 else None,
+        max_uses_per_user=int(payload.max_uses_per_user) if payload.max_uses_per_user is not None and int(payload.max_uses_per_user) > 0 else 1,
+        used_by="[]",
+        usage_count=0,
     )
     db.add(new_coupon)
     db.commit()
@@ -1677,9 +1708,40 @@ def delete_coupon(coupon_id: int, db: Session = Depends(get_db)):
 @app.post("/api/coupons/validate")
 def validate_coupon(payload: CouponValidateRequest, db: Session = Depends(get_db)):
     code_clean = payload.code.strip().upper()
-    c = db.query(CouponModel).filter(CouponModel.code == code_clean, CouponModel.is_active == True).first()
+    c = db.query(CouponModel).filter(CouponModel.code == code_clean).first()
     if not c:
-        return {"valid": False, "discount": 0.0, "message": "Invalid or expired coupon code."}
+        return {"valid": False, "discount": 0.0, "message": "Invalid coupon code. Please verify the code entered."}
+
+    # Strict active / inactive check
+    if not c.is_active:
+        return {
+            "valid": False,
+            "discount": 0.0,
+            "message": "This coupon code is currently inactive and cannot be redeemed.",
+        }
+
+    # Check total usage limit (e.g. 1 time global use)
+    if c.max_uses_total is not None and c.usage_count >= c.max_uses_total:
+        return {
+            "valid": False,
+            "discount": 0.0,
+            "message": f"This coupon code has reached its maximum total limit ({c.max_uses_total} use{'s' if c.max_uses_total > 1 else ''}).",
+        }
+
+    # Check per-user usage limit (e.g. 1 time per person)
+    user_ident = (payload.user_id or payload.userId or "").strip().lower()
+    if user_ident and c.max_uses_per_user:
+        try:
+            used_list = json.loads(c.used_by) if c.used_by else []
+        except Exception:
+            used_list = []
+        user_times = sum(1 for u in used_list if str(u).strip().lower() == user_ident)
+        if user_times >= c.max_uses_per_user:
+            return {
+                "valid": False,
+                "discount": 0.0,
+                "message": f"You have already redeemed this coupon code (limit: {c.max_uses_per_user} time{'s' if c.max_uses_per_user > 1 else ''} per customer).",
+            }
 
     if payload.subtotal < c.min_order_amount:
         return {
@@ -1885,11 +1947,11 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
         "invoiceNumber": f"INV-{order.order_id}",
         "invoiceDate": order.created_at.strftime("%d %b %Y"),
         "company": {
-            "name": "Dhruv Pharma Chemist & Druggist",
+            "name": "DHRUV PHARMA",
             "tagline": "Authentic Healthcare & 100% Genuine Medicines",
-            "address": "Opp. Civil Hospital, Main Road, Nandurbar – 425412 (MH)",
+            "address": "First Floor, Plot No. 122-133, Shop No. C/135, Gokuldham Complex, Shahada Road, Nandurbar - 425412",
             "phone": "+91 9503500725",
-            "email": "orders@dhruvpharma.com",
+            "email": "dhruvpharma25@gmail.com",
             "gstin": "27AABCD1234F1Z5",
             "drugLicense": "MH-NDB-20B-184920 / 21B-184921",
             "fssai": "11521045000123",
@@ -1925,10 +1987,11 @@ def get_sales_report(db: Session = Depends(get_db)):
     total_orders = len(orders)
     delivered_orders = len([o for o in orders if o.status == "delivered"])
     cancelled_orders = len([o for o in orders if o.status == "cancelled"])
+    pending_orders = max(0, total_orders - delivered_orders - cancelled_orders)
     avg_order_value = round(total_revenue / max(1, (total_orders - cancelled_orders)), 2)
 
     # Payment breakdown
-    payment_methods = {}
+    payment_methods = {"COD": 0, "UPI": 0}
     for o in orders:
         pm = o.payment_method or "COD"
         payment_methods[pm] = payment_methods.get(pm, 0) + 1
@@ -1937,7 +2000,7 @@ def get_sales_report(db: Session = Depends(get_db)):
     district_sales = {}
     for o in orders:
         d = o.district or "Nandurbar"
-        district_sales[d] = district_sales.get(d, 0) + o.total_amount
+        district_sales[d] = district_sales.get(d, 0) + 1
 
     # Top selling medicines from parsed items
     item_sales = {}
@@ -1945,16 +2008,21 @@ def get_sales_report(db: Session = Depends(get_db)):
         if o.status == "cancelled":
             continue
         try:
-            items = json.loads(o.items)
+            items = json.loads(o.items) if isinstance(o.items, str) else (o.items or [])
             for it in items:
                 name = it.get("name", "Unknown")
                 qty = it.get("qty", 1)
-                item_sales[name] = item_sales.get(name, 0) + qty
+                price = float(it.get("price", 0.0))
+                if name not in item_sales:
+                    item_sales[name] = {"name": name, "units": 0, "unitsSold": 0, "revenue": 0.0}
+                item_sales[name]["units"] += qty
+                item_sales[name]["unitsSold"] += qty
+                item_sales[name]["revenue"] += round(price * qty, 2)
         except Exception:
             pass
 
     top_selling = sorted(
-        [{"name": k, "unitsSold": v} for k, v in item_sales.items()],
+        list(item_sales.values()),
         key=lambda x: x["unitsSold"],
         reverse=True
     )[:8]
@@ -1970,13 +2038,28 @@ def get_sales_report(db: Session = Depends(get_db)):
     daily_chart = [{"date": k, "revenue": round(v, 2)} for k, v in daily_revenue.items()][-7:]
 
     return {
+        # Snake-case (used by frontend components)
+        "total_revenue": round(total_revenue, 2),
+        "total_orders": total_orders,
+        "delivered_orders": delivered_orders,
+        "cancelled_orders": cancelled_orders,
+        "pending_orders": pending_orders,
+        "avg_order_value": avg_order_value,
+        "payment_methods": payment_methods,
+        "district_sales": district_sales,
+        "top_medicines": top_selling,
+        "daily_revenue": daily_chart,
+
+        # Camel-case (backwards compatibility)
         "totalRevenue": round(total_revenue, 2),
         "totalOrders": total_orders,
         "deliveredOrders": delivered_orders,
         "cancelledOrders": cancelled_orders,
+        "pendingOrders": pending_orders,
         "averageOrderValue": avg_order_value,
+        "avgOrderValue": avg_order_value,
         "paymentMethods": payment_methods,
-        "districtSales": {k: round(v, 2) for k, v in district_sales.items()},
+        "districtSales": district_sales,
         "topSelling": top_selling,
         "dailyRevenue": daily_chart,
     }

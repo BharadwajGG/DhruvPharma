@@ -72,12 +72,12 @@ export default function Footer() {
                         </div>
                     </Link>
                     <p className="text-sm text-gray-400 leading-relaxed mb-5">
-                        Your trusted local medicine partner serving Pune, Nashik, Ahmednagar,
-                        and Aurangabad districts of Maharashtra.
+                        Your trusted regional medicine partner serving Nandurbar &amp; Dhule
+                        districts across 7 authorized hubs with 100% genuine medicines.
                     </p>
                     <div className="flex items-center gap-3">
                         <a
-                            href="https://wa.me/919876543210"
+                            href="https://wa.me/919503500725"
                             aria-label="WhatsApp"
                             target="_blank"
                             rel="noreferrer"
@@ -86,14 +86,14 @@ export default function Footer() {
                             <MessageCircle size={16} />
                         </a>
                         <a
-                            href="tel:+919876543210"
+                            href="tel:+919503500725"
                             aria-label="Call Us"
                             className="bg-gray-800 hover:bg-blue-600 text-gray-400 hover:text-white w-9 h-9 rounded-full flex items-center justify-center transition-colors"
                         >
                             <Phone size={16} />
                         </a>
                         <a
-                            href="mailto:support@dhruvpharma.com"
+                            href="mailto:dhruvpharma25@gmail.com"
                             aria-label="Email"
                             className="bg-gray-800 hover:bg-red-600 text-gray-400 hover:text-white w-9 h-9 rounded-full flex items-center justify-center transition-colors"
                         >
@@ -150,33 +150,34 @@ export default function Footer() {
                     <ul className="space-y-4">
                         <li className="flex items-start gap-3">
                             <MapPin size={16} className="text-blue-400 mt-0.5 shrink-0" />
-                            <p className="text-sm text-gray-400">
-                                Shop No. 12, Medical Complex,<br />
-                                Pune, Maharashtra – 411001
+                            <p className="text-xs text-gray-400 leading-relaxed">
+                                First Floor, Plot No. 122-133,<br />
+                                Shop No. C/135, Gokuldham Complex,<br />
+                                Shahada Road, Nandurbar – 425412
                             </p>
                         </li>
                         <li className="flex items-center gap-3">
                             <Phone size={16} className="text-blue-400 shrink-0" />
                             <a
-                                href="tel:+919876543210"
-                                className="text-sm text-gray-400 hover:text-blue-400 transition-colors"
+                                href="tel:+919503500725"
+                                className="text-sm text-gray-400 hover:text-blue-400 transition-colors font-medium"
                             >
-                                +91 98765 43210
+                                +91 95035 00725
                             </a>
                         </li>
                         <li className="flex items-center gap-3">
                             <Mail size={16} className="text-blue-400 shrink-0" />
                             <a
-                                href="mailto:info@dhruvpharma.com"
+                                href="mailto:dhruvpharma25@gmail.com"
                                 className="text-sm text-gray-400 hover:text-blue-400 transition-colors"
                             >
-                                info@dhruvpharma.com
+                                dhruvpharma25@gmail.com
                             </a>
                         </li>
                         <li className="flex items-center gap-3">
-                            <Clock size={16} className="text-blue-400 shrink-0" />
-                            <p className="text-sm text-gray-400">
-                                Mon – Sat: 9:00 AM – 8:00 PM
+                            <Clock size={16} className="text-emerald-400 shrink-0" />
+                            <p className="text-xs font-semibold text-emerald-400">
+                                24/7 Service Available · Always Open
                             </p>
                         </li>
                     </ul>

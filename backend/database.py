@@ -210,19 +210,38 @@ class CouponModel(Base):
     max_discount = Column(Float, default=500.0)
     is_active = Column(Boolean, default=True)
     usage_count = Column(Integer, default=0)
+    max_uses_total = Column(Integer, nullable=True, default=None)  # None = Unlimited, 1 = 1-time global use
+    max_uses_per_user = Column(Integer, default=1)  # 1 = 1-time per customer, 0/None = Unlimited
+    used_by = Column(Text, default="[]")  # JSON list of user identifiers (phone, email, uid)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
+        try:
+            used_list = json.loads(self.used_by) if self.used_by else []
+        except Exception:
+            used_list = []
+
         return {
             "id": self.id,
             "code": self.code,
             "description": self.description or "",
+            "discount_type": self.discount_type,
             "discountType": self.discount_type,
+            "discount_value": self.discount_value,
             "discountValue": self.discount_value,
+            "min_order_amount": self.min_order_amount,
             "minOrderAmount": self.min_order_amount,
+            "max_discount": self.max_discount,
             "maxDiscount": self.max_discount,
+            "is_active": self.is_active,
             "isActive": self.is_active,
+            "usage_count": self.usage_count,
             "usageCount": self.usage_count,
+            "max_uses_total": self.max_uses_total,
+            "maxUsesTotal": self.max_uses_total,
+            "max_uses_per_user": self.max_uses_per_user,
+            "maxUsesPerUser": self.max_uses_per_user,
+            "usedByCount": len(used_list),
             "createdAt": self.created_at.strftime("%d %b %Y") if self.created_at else "",
         }
 
@@ -298,6 +317,19 @@ def init_db():
             if med_cols and "image_url" not in med_cols:
                 cursor.execute("ALTER TABLE medicines ADD COLUMN image_url VARCHAR(500) DEFAULT ''")
                 conn.connection.commit()
+
+            cursor.execute("PRAGMA table_info(coupons)")
+            coupon_cols = [col[1] for col in cursor.fetchall()]
+            if coupon_cols:
+                if "max_uses_total" not in coupon_cols:
+                    cursor.execute("ALTER TABLE coupons ADD COLUMN max_uses_total INTEGER DEFAULT NULL")
+                    conn.connection.commit()
+                if "max_uses_per_user" not in coupon_cols:
+                    cursor.execute("ALTER TABLE coupons ADD COLUMN max_uses_per_user INTEGER DEFAULT 1")
+                    conn.connection.commit()
+                if "used_by" not in coupon_cols:
+                    cursor.execute("ALTER TABLE coupons ADD COLUMN used_by TEXT DEFAULT '[]'")
+                    conn.connection.commit()
         except Exception as e:
             print("Database migration notice:", e)
 
@@ -309,9 +341,9 @@ def init_db():
                 {
                     "rx_id": "RX-001",
                     "patient_name": "Sunita Deshmukh",
-                    "phone": "+91 94523 10012",
-                    "district": "Nashik",
-                    "address": "45, Gangapur Rd, Nashik – 422013",
+                    "phone": "+91 95035 00725",
+                    "district": "Nandurbar",
+                    "address": "Gokuldham Complex, Shahada Road, Nandurbar – 425412",
                     "notes": "Regular monthly BP medicines",
                     "status": "pending",
                     "files": json.dumps(["prescription_1.jpg"]),
@@ -321,8 +353,8 @@ def init_db():
                     "rx_id": "RX-002",
                     "patient_name": "Anil Kulkarni",
                     "phone": "+91 98001 34567",
-                    "district": "Ahmednagar",
-                    "address": "7, Savedi Colony, Ahmednagar – 414003",
+                    "district": "Shahada",
+                    "address": "7, Market Yard, Shahada – 425409",
                     "notes": "Diabetic care - Metformin 500mg required",
                     "status": "pending",
                     "files": json.dumps(["prescription_front.pdf", "prescription_back.jpg"]),
@@ -332,8 +364,8 @@ def init_db():
                     "rx_id": "RX-003",
                     "patient_name": "Priya More",
                     "phone": "+91 76543 21098",
-                    "district": "Pune",
-                    "address": "3, Kothrud, Pune – 411029",
+                    "district": "Taloda",
+                    "address": "3, Main Bazaar, Taloda – 425413",
                     "notes": "Diabetic patient. Needs Metformin 500mg x 3 strips",
                     "status": "reviewed",
                     "files": json.dumps(["rx_priya.jpg"]),
@@ -486,11 +518,11 @@ def init_db():
                 {
                     "order_id": "DP-142",
                     "customer_name": "Rajesh Patil",
-                    "customer_phone": "+91 98765 43210",
-                    "customer_email": "rajesh.patil@example.com",
-                    "district": "Pune",
-                    "address": "Flat 302, Green Acre, Baner, Pune – 411045",
-                    "pincode": "411045",
+                    "customer_phone": "+91 95035 00725",
+                    "customer_email": "dhruvpharma25@gmail.com",
+                    "district": "Nandurbar",
+                    "address": "Flat 302, Gokuldham, Shahada Road, Nandurbar – 425412",
+                    "pincode": "425412",
                     "items": json.dumps([
                         {"id": 2, "name": "Dolo 650 Tablet", "price": 29.0, "mrp": 34.0, "qty": 2, "brand": "Micro Labs"},
                         {"id": 5, "name": "Pan-D Capsule", "price": 175.0, "mrp": 199.0, "qty": 1, "brand": "Alkem Labs"},
@@ -510,9 +542,9 @@ def init_db():
                     "customer_name": "Meena Joshi",
                     "customer_phone": "+91 76543 21098",
                     "customer_email": "meena.j@example.com",
-                    "district": "Nashik",
-                    "address": "12, College Road, Near BYK College, Nashik – 422005",
-                    "pincode": "422005",
+                    "district": "Shahada",
+                    "address": "12, College Road, Shahada – 425409",
+                    "pincode": "425409",
                     "items": json.dumps([
                         {"id": 1, "name": "Augmentin 625 Duo Tablet", "price": 196.0, "mrp": 223.5, "qty": 2, "brand": "GSK"},
                         {"id": 6, "name": "Shelcal 500 Tablet", "price": 115.0, "mrp": 131.0, "qty": 1, "brand": "Torrent"},
@@ -532,9 +564,9 @@ def init_db():
                     "customer_name": "Suresh Kale",
                     "customer_phone": "+91 98001 34567",
                     "customer_email": "suresh.kale@example.com",
-                    "district": "Ahmednagar",
-                    "address": "45, Savedi Road, Ahmednagar – 414003",
-                    "pincode": "414003",
+                    "district": "Shirpur",
+                    "address": "45, Station Road, Shirpur – 424405",
+                    "pincode": "424405",
                     "items": json.dumps([
                         {"id": 4, "name": "Telma 40 Tablet", "price": 125.0, "mrp": 142.0, "qty": 1, "brand": "Glenmark"},
                     ]),

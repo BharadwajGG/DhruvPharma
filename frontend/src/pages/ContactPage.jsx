@@ -1,36 +1,36 @@
 import { useState } from 'react'
-import { Phone, Mail, MapPin, Clock, Send, CheckCircle, AlertCircle, MessageSquare } from 'lucide-react'
+import { Phone, Mail, MapPin, Sparkles, Send, CheckCircle, AlertCircle, MessageSquare } from 'lucide-react'
 
 const CONTACT_INFO = [
     {
         icon: Phone,
-        label: 'Phone',
-        value: '+91 98765 43210',
-        sub: 'Mon – Sat, 9 AM – 8 PM',
-        href: 'tel:+919876543210',
+        label: 'Order on Call & WhatsApp',
+        value: '+91 95035 00725',
+        sub: 'Always Available 24/7',
+        href: 'tel:+919503500725',
         color: 'text-blue-600 bg-blue-50',
     },
     {
         icon: Mail,
-        label: 'Email',
-        value: 'info@dhruvpharma.com',
-        sub: 'We reply within 24 hours',
-        href: 'mailto:info@dhruvpharma.com',
+        label: 'Official Email',
+        value: 'dhruvpharma25@gmail.com',
+        sub: 'Customer Support & Inquiries',
+        href: 'mailto:dhruvpharma25@gmail.com',
         color: 'text-green-600 bg-green-50',
     },
     {
         icon: MapPin,
-        label: 'Address',
-        value: 'Shop No. 12, Medical Complex, Pune – 411001',
-        sub: 'Maharashtra, India',
+        label: 'Store Address',
+        value: 'Gokuldham Complex, Nandurbar',
+        sub: 'Shop C/135, Shahada Road, Nandurbar - 425412',
         href: '#',
         color: 'text-red-500 bg-red-50',
     },
     {
-        icon: Clock,
-        label: 'Hours',
-        value: 'Mon – Sat: 9:00 AM – 8:00 PM',
-        sub: 'Closed on Sundays',
+        icon: Sparkles,
+        label: 'Customer Service',
+        value: '24/7 Ordering & Support',
+        sub: 'Ready to serve anytime',
         href: null,
         color: 'text-purple-600 bg-purple-50',
     },
@@ -215,24 +215,48 @@ export default function ContactPage() {
 
                     {/* Map placeholder + Serving areas */}
                     <div className="space-y-5">
-                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 h-64 flex items-center justify-center">
-                            <div className="text-center">
-                                <MapPin size={40} className="text-blue-200 mx-auto mb-2" />
-                                <p className="text-sm font-semibold text-gray-600">Dhruv Pharma</p>
-                                <p className="text-xs text-gray-400">Shop No. 12, Medical Complex, Pune</p>
-                                <a href="#" className="mt-3 inline-block text-blue-600 text-xs font-medium hover:underline">
-                                    View on Google Maps →
-                                </a>
-                            </div>
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col items-center justify-center text-center">
+                            <MapPin size={36} className="text-blue-600 mb-2" />
+                            <h3 className="text-base font-bold text-gray-900">DHRUV PHARMA</h3>
+                            <p className="text-xs text-gray-600 max-w-sm mt-1 leading-relaxed">
+                                First Floor, Plot No. 122-133, Shop No. C/135, Gokuldham Complex, Shahada Road, Nandurbar - 425412 (Maharashtra)
+                            </p>
+                            <p className="text-xs font-semibold text-blue-600 mt-2">
+                                Helpline: +91 95035 00725 • Email: dhruvpharma25@gmail.com
+                            </p>
+                            <a
+                                href="https://maps.google.com/?q=Gokuldham+Complex+Shahada+Road+Nandurbar+425412"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-3 inline-flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline"
+                            >
+                                View Location on Google Maps →
+                            </a>
                         </div>
 
-                        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                            <h3 className="font-semibold text-gray-800 text-sm mb-3">Serving Districts</h3>
-                            <div className="grid grid-cols-2 gap-2">
-                                {['Pune', 'Nashik', 'Ahmednagar', 'Aurangabad'].map((dist) => (
-                                    <div key={dist} className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
-                                        <span className="w-2 h-2 bg-blue-500 rounded-full" />
-                                        <span className="text-sm font-medium text-blue-700">{dist}</span>
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-bold text-gray-900 text-sm">Authorized Delivery Hubs</h3>
+                                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                                    7 Hubs · 3–4 Days Delivery
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                {[
+                                    { name: 'Nandurbar', pin: '425412', dist: 'Nandurbar' },
+                                    { name: 'Shahada',   pin: '425409', dist: 'Nandurbar' },
+                                    { name: 'Taloda',    pin: '425413', dist: 'Nandurbar' },
+                                    { name: 'Akkalkuwa', pin: '425415', dist: 'Nandurbar' },
+                                    { name: 'Shirpur',   pin: '424405', dist: 'Dhule' },
+                                    { name: 'Nijampur',  pin: '424305', dist: 'Dhule' },
+                                    { name: 'Sakri',     pin: '424304', dist: 'Dhule' },
+                                ].map((hub) => (
+                                    <div key={hub.pin} className="flex items-center justify-between bg-blue-50/60 border border-blue-100/80 rounded-xl px-3 py-2">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="w-1.5 h-1.5 bg-blue-600 rounded-full" />
+                                            <span className="font-semibold text-gray-800">{hub.name}</span>
+                                        </div>
+                                        <span className="font-mono text-[10px] text-blue-700 font-bold">{hub.pin}</span>
                                     </div>
                                 ))}
                             </div>

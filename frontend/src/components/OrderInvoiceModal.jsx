@@ -71,8 +71,8 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
                             </div>
                             <p className="text-[11px] font-semibold text-emerald-700">Retail & Wholesale Chemist</p>
                             <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                                Opp. Civil Hospital, Main Road, Nandurbar – 425412 (Maharashtra)<br />
-                                <strong>Helpline:</strong> +91 9503500725 • <strong>Email:</strong> orders@dhruvpharma.com
+                                First Floor, Plot No. 122-133, Shop No. C/135, Gokuldham Complex, Shahada Road, Nandurbar - 425412<br />
+                                <strong>Helpline:</strong> +91 9503500725 • <strong>Email:</strong> dhruvpharma25@gmail.com
                             </p>
                             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-600">
                                 <span><strong>D.L. No.:</strong> MH-NDB-20B-184920 / 21B-184921</span>

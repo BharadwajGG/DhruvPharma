@@ -644,7 +644,7 @@ export default function HomePage() {
                             Prefer to Order via Call or WhatsApp?
                         </h3>
                         <p className="text-xs sm:text-sm text-emerald-100 max-w-xl">
-                            Our licensed pharmacist is available Mon–Sat from 9:00 AM to 8:00 PM. Tell us your medicines or read your prescription directly over the phone!
+                            Our licensed pharmacist is available 24/7 for you. Tell us your medicines or read your prescription directly over the phone anytime!
                         </p>
                     </div>
 

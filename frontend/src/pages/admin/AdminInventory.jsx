@@ -20,6 +20,8 @@ import {
     Sparkles,
     X,
     Loader2,
+    Pencil,
+    Check,
 } from 'lucide-react'
 
 const ALL_CATEGORIES = [
@@ -85,6 +87,8 @@ export default function AdminInventory() {
     const [isPublishing, setIsPublishing] = useState(false)
     const [showPublishModal, setShowPublishModal] = useState(false)
     const [feedbackMsg, setFeedbackMsg] = useState(null)
+    const [editingNameId, setEditingNameId] = useState(null)
+    const [editingNameValue, setEditingNameValue] = useState('')
 
     // Fetch Staged Items
     const fetchStaged = async () => {
@@ -181,7 +185,7 @@ export default function AdminInventory() {
         }
     }
 
-    // Inline Update Item Handler
+    // Inline Update Item Handler (Supports Category, Price, Stock, Rx, and Name)
     const handleUpdateItem = async (itemId, field, value) => {
         // Optimistic UI update
         const updater = (prev) =>
@@ -195,6 +199,7 @@ export default function AdminInventory() {
 
         // Backend sync payload mapping
         const payload = {}
+        if (field === 'name') payload.name = String(value).trim()
         if (field === 'category') payload.category = value
         if (field === 'price' || field === 'sellingPrice') payload.selling_price = parseFloat(value) || 0
         if (field === 'mrp') payload.mrp = parseFloat(value) || 0
@@ -213,6 +218,22 @@ export default function AdminInventory() {
         } catch (err) {
             console.error('Inline update network error:', err)
         }
+    }
+
+    // Save edited medicine name handler
+    const handleSaveName = async (itemId) => {
+        const trimmed = editingNameValue.trim()
+        if (!trimmed) {
+            setEditingNameId(null)
+            return
+        }
+        setEditingNameId(null)
+        await handleUpdateItem(itemId, 'name', trimmed)
+        setFeedbackMsg({
+            type: 'success',
+            text: `Medicine renamed to "${trimmed}" in ${activeTab === 'staged' ? 'draft staging' : 'live catalog'}!`,
+        })
+        setTimeout(() => setFeedbackMsg(null), 3000)
     }
 
     // Delete Item Handler
@@ -647,14 +668,62 @@ export default function AdminInventory() {
                                             {item.itemCode}
                                         </td>
 
-                                        {/* Name & Composition */}
+                                        {/* Name & Composition (Editable) */}
                                         <td className="py-3 px-4">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0 bg-white shadow-2xs flex items-center justify-center">
                                                     <MedicineImage medicine={item} aspectRatio="thumb" showGenuineBadge={false} className="w-full h-full" />
                                                 </div>
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="font-bold text-gray-900 text-xs truncate" title={item.name}>{item.name}</p>
+                                                    {editingNameId === item.id ? (
+                                                        <div className="flex items-center gap-1.5 my-0.5">
+                                                            <input
+                                                                type="text"
+                                                                autoFocus
+                                                                value={editingNameValue}
+                                                                onChange={(e) => setEditingNameValue(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') handleSaveName(item.id)
+                                                                    if (e.key === 'Escape') setEditingNameId(null)
+                                                                }}
+                                                                className="w-full px-2 py-1 text-xs font-bold border-2 border-blue-500 rounded-lg outline-none bg-blue-50/70 text-gray-900 shadow-xs"
+                                                                placeholder="Edit medicine name..."
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSaveName(item.id)}
+                                                                className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors cursor-pointer shrink-0"
+                                                                title="Save name"
+                                                            >
+                                                                <Check size={13} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingNameId(null)}
+                                                                className="p-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer shrink-0"
+                                                                title="Cancel"
+                                                            >
+                                                                <X size={13} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-1.5 group/name">
+                                                            <p className="font-bold text-gray-900 text-xs truncate" title={item.name}>
+                                                                {item.name}
+                                                            </p>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingNameId(item.id)
+                                                                    setEditingNameValue(item.name)
+                                                                }}
+                                                                className="opacity-0 group-hover/name:opacity-100 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all cursor-pointer shrink-0"
+                                                                title="Click to rename medicine in catalog"
+                                                            >
+                                                                <Pencil size={11} />
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                     <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1" title={item.salt}>
                                                         {item.salt || <span className="italic text-gray-400">No composition listed</span>}
                                                     </p>

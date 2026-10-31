@@ -13,8 +13,8 @@ const MOCK_ORDER = {
     orderId:     'DP-2024-00142',
     status:      'dispatched',
     patient:     'Rajesh Patil',
-    phone:       '+91 98765 43210',
-    address:     '12, Shivaji Nagar, Pune – 411005',
+    phone:       '+91 95035 00725',
+    address:     'Station Road, Nandurbar – 425412',
     items:       [
         { name: 'Vitamin D3 60K IU', qty: 2, price: 90  },
         { name: 'Paracetamol 500mg', qty: 1, price: 18  },

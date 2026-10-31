@@ -3,16 +3,31 @@ import { createContext, useContext, useState, useEffect } from 'react'
 const DeliveryContext = createContext(null)
 
 export const SERVICEABLE_AREAS = [
-    { id: 1, name: 'Nandurbar', pincode: '425412', district: 'Nandurbar', deliveryTime: '3–4 Days' },
-    { id: 2, name: 'Shahada',   pincode: '425409', district: 'Nandurbar', deliveryTime: '3–4 Days' },
-    { id: 3, name: 'Taloda',    pincode: '425413', district: 'Nandurbar', deliveryTime: '3–4 Days' },
-    { id: 4, name: 'Nijampur',  pincode: '424305', district: 'Dhule',      deliveryTime: '3–4 Days' },
-    { id: 5, name: 'Akkalkuwa', pincode: '425415', district: 'Nandurbar', deliveryTime: '3–4 Days' },
-    { id: 6, name: 'Shirpur',   pincode: '424405', district: 'Dhule',      deliveryTime: '3–4 Days' },
-    { id: 7, name: 'Sakri',     pincode: '424304', district: 'Dhule',      deliveryTime: '3–4 Days' },
+    { id: 1, name: 'Nandurbar', pincode: '425412', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.3697, lng: 74.2389 },
+    { id: 2, name: 'Shahada',   pincode: '425409', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.5458, lng: 74.4715 },
+    { id: 3, name: 'Taloda',    pincode: '425413', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.4833, lng: 74.2167 },
+    { id: 4, name: 'Nijampur',  pincode: '424305', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 21.0500, lng: 74.3333 },
+    { id: 5, name: 'Akkalkuwa', pincode: '425415', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.5500, lng: 74.0167 },
+    { id: 6, name: 'Shirpur',   pincode: '424405', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 21.3500, lng: 74.8833 },
+    { id: 7, name: 'Sakri',     pincode: '424304', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 20.9833, lng: 74.3167 },
 ]
 
 const STORAGE_KEY = 'dhruvpharma_delivery_location'
+
+// Geodesic distance in kilometers
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371
+    const dLat = ((lat2 - lat1) * Math.PI) / 180
+    const dLon = ((lon2 - lon1) * Math.PI) / 180
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+}
 
 export function DeliveryProvider({ children }) {
     const [selectedLocation, setSelectedLocation] = useState(() => {
@@ -20,7 +35,7 @@ export function DeliveryProvider({ children }) {
             const saved = localStorage.getItem(STORAGE_KEY)
             if (saved) {
                 const parsed = JSON.parse(saved)
-                if (SERVICEABLE_AREAS.some((a) => a.pincode === parsed.pincode)) {
+                if (parsed?.name) {
                     return parsed
                 }
             }
@@ -63,7 +78,7 @@ export function DeliveryProvider({ children }) {
         }
     }
 
-    // HTML5 Geolocation helper
+    // Real HTML5 Geolocation with reverse geocoding
     const detectCurrentLocation = () => {
         return new Promise((resolve) => {
             if (!navigator.geolocation) {
@@ -76,28 +91,108 @@ export function DeliveryProvider({ children }) {
 
             setIsLocating(true)
             navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    setIsLocating(false)
-                    // If user is near Khandesh region / Maharashtra, default to nearest hub or Nandurbar
-                    const defaultHub = SERVICEABLE_AREAS[0]
-                    setSelectedLocation(defaultHub)
+                async (pos) => {
+                    const lat = pos.coords.latitude
+                    const lng = pos.coords.longitude
+
+                    // Reverse geocode via BigDataCloud client API (free, fast, no API key needed)
+                    let geoInfo = null
                     try {
-                        localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultHub))
+                        const res = await fetch(
+                            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
+                        )
+                        if (res.ok) {
+                            const data = await res.json()
+                            geoInfo = {
+                                city: data.city || data.locality || data.principalSubdivision || 'Detected City',
+                                postcode: (data.postcode || '').replace(/\D/g, ''),
+                                district: data.principalSubdivision || 'Maharashtra',
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Reverse geocoding fetch error:', e)
+                    }
+
+                    // Find closest serviceable hub by distance
+                    let closestHub = SERVICEABLE_AREAS[0]
+                    let minDistance = calculateDistance(lat, lng, closestHub.lat, closestHub.lng)
+
+                    for (const hub of SERVICEABLE_AREAS) {
+                        const d = calculateDistance(lat, lng, hub.lat, hub.lng)
+                        if (d < minDistance) {
+                            minDistance = d
+                            closestHub = hub
+                        }
+                    }
+
+                    setIsLocating(false)
+
+                    // Case A: Postcode matches one of the 7 hubs directly
+                    if (geoInfo?.postcode) {
+                        const exactHub = SERVICEABLE_AREAS.find((h) => h.pincode === geoInfo.postcode)
+                        if (exactHub) {
+                            setSelectedLocation(exactHub)
+                            try {
+                                localStorage.setItem(STORAGE_KEY, JSON.stringify(exactHub))
+                            } catch (e) {}
+                            resolve({
+                                success: true,
+                                area: exactHub,
+                                message: `GPS Detected: ${geoInfo.city} (${geoInfo.postcode}). Active delivery hub: ${exactHub.name}!`,
+                            })
+                            return
+                        }
+                    }
+
+                    // Case B: User is within 45km of one of the 7 hubs (Khandesh / Nandurbar-Dhule area)
+                    if (minDistance <= 45) {
+                        const hubWithDetectedCity = {
+                            ...closestHub,
+                            detectedCity: geoInfo?.city || closestHub.name,
+                            detectedPincode: geoInfo?.postcode || closestHub.pincode,
+                        }
+                        setSelectedLocation(hubWithDetectedCity)
+                        try {
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(hubWithDetectedCity))
+                        } catch (e) {}
+                        resolve({
+                            success: true,
+                            area: hubWithDetectedCity,
+                            message: `GPS Detected: ${geoInfo?.city || 'Your area'} (${geoInfo?.postcode || 'GPS'}). Assigned to nearest hub: ${closestHub.name} (${minDistance.toFixed(0)} km away).`,
+                        })
+                        return
+                    }
+
+                    // Case C: User is in another city (e.g. Pune, Mumbai, Delhi, etc.)
+                    const detectedArea = {
+                        id: 'gps-custom',
+                        name: geoInfo?.city || 'Current Location',
+                        pincode: geoInfo?.postcode || 'Detected',
+                        district: geoInfo?.district || 'Outside Hub',
+                        deliveryTime: 'Out of Delivery Range',
+                        isOutside: true,
+                        nearestHub: closestHub.name,
+                    }
+                    setSelectedLocation(detectedArea)
+                    try {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(detectedArea))
                     } catch (e) {}
+
                     resolve({
                         success: true,
-                        area: defaultHub,
-                        message: `Detected your region. Defaulting delivery hub to ${defaultHub.name} (${defaultHub.pincode}).`,
+                        area: detectedArea,
+                        message: `GPS Detected: ${detectedArea.name} (${detectedArea.pincode}). Nearest Dhruv Pharma hub is ${closestHub.name} (${minDistance.toFixed(0)} km away).`,
                     })
                 },
                 (err) => {
                     setIsLocating(false)
+                    console.warn('Geolocation permission error:', err)
                     resolve({
                         success: false,
-                        message: 'Could not access current location. Please select your town or enter PIN code.',
+                        message: 'Could not access GPS. Please check location permissions or select your town.',
                     })
                 },
-                { timeout: 7000 }
+                { timeout: 9000, enableHighAccuracy: true }
             )
         })
     }

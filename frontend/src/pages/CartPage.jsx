@@ -144,6 +144,7 @@ export default function CartPage() {
                 body: JSON.stringify({
                     code: cleanCode,
                     subtotal: subtotal,
+                    userId: currentUser?.uid || currentUser?.email || formData.phone || '',
                 }),
             })
             const data = await res.json()
@@ -225,6 +226,9 @@ export default function CartPage() {
             data.append('totalAmount', String(finalPayable))
             data.append('paymentMethod', formData.paymentMethod)
             data.append('notes', formData.notes || '')
+            if (couponApplied && coupon.trim()) {
+                data.append('couponCode', coupon.trim().toUpperCase())
+            }
 
             if (rxFile) {
                 data.append('prescriptionFile', rxFile)

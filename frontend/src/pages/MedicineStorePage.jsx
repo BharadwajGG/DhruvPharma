@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, memo } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useWishlist } from '../context/WishlistContext'
@@ -73,8 +73,8 @@ function MedicineCardSkeleton() {
     )
 }
 
-/* ── Medicine Card Component ── */
-function MedicineCard({ medicine }) {
+/* ── Medicine Card Component (Memoized for high FPS) ── */
+const MedicineCard = memo(function MedicineCard({ medicine }) {
     const navigate = useNavigate()
     const { addToCart } = useCart()
     const { isInWishlist, toggleWishlist } = useWishlist()
@@ -97,7 +97,7 @@ function MedicineCard({ medicine }) {
     return (
         <div
             onClick={() => navigate(`/medicines/${medicine.id}`)}
-            className={`card-modern group overflow-hidden flex flex-col cursor-pointer ${
+            className={`card-modern group overflow-hidden flex flex-col cursor-pointer transition-transform hover:-translate-y-1 ${
                 !medicine.inStock ? 'opacity-75' : ''
             }`}
         >
@@ -228,7 +228,7 @@ function MedicineCard({ medicine }) {
             </div>
         </div>
     )
-}
+})
 
 /* ── Main Store Page ── */
 export default function MedicineStorePage() {
@@ -236,12 +236,27 @@ export default function MedicineStorePage() {
     const [medicines, setMedicines] = useState([])
     const [isLoading, setIsLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
+    const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('q') || '')
     const [activeCategory, setActiveCategory] = useState(searchParams.get('category') || 'All')
     const [sortBy, setSortBy] = useState('popular')
     const [showFilters, setShowFilters] = useState(false)
     const [rxFilter, setRxFilter] = useState('all') // 'all' | 'rx' | 'otc'
     const [inStockOnly, setInStockOnly] = useState(false)
     const [maxPrice, setMaxPrice] = useState(1000)
+    const [visibleCount, setVisibleCount] = useState(24)
+
+    // Debounce search keystrokes to ensure 60 FPS input smoothness
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearch(searchQuery)
+        }, 150)
+        return () => clearTimeout(handler)
+    }, [searchQuery])
+
+    // Reset pagination batch to initial 24 whenever search or filters change
+    useEffect(() => {
+        setVisibleCount(24)
+    }, [debouncedSearch, activeCategory, sortBy, rxFilter, inStockOnly, maxPrice])
 
     // Fetch live published medicines from backend
     useEffect(() => {
@@ -272,8 +287,8 @@ export default function MedicineStorePage() {
     const filteredMedicines = useMemo(() => {
         let result = [...medicines]
 
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase()
+        if (debouncedSearch.trim()) {
+            const q = debouncedSearch.toLowerCase().trim()
             result = result.filter(
                 (m) =>
                     (m.name && m.name.toLowerCase().includes(q)) ||
@@ -324,7 +339,12 @@ export default function MedicineStorePage() {
         }
 
         return result
-    }, [medicines, searchQuery, activeCategory, sortBy, rxFilter, inStockOnly, maxPrice])
+    }, [medicines, debouncedSearch, activeCategory, sortBy, rxFilter, inStockOnly, maxPrice])
+
+    // Sliced medicines for virtual/windowed rendering
+    const visibleMedicines = useMemo(() => {
+        return filteredMedicines.slice(0, visibleCount)
+    }, [filteredMedicines, visibleCount])
 
     const handleResetFilters = () => {
         setActiveCategory('All')
@@ -332,6 +352,8 @@ export default function MedicineStorePage() {
         setInStockOnly(false)
         setMaxPrice(1000)
         setSearchQuery('')
+        setDebouncedSearch('')
+        setVisibleCount(24)
     }
 
     return (
@@ -543,11 +565,37 @@ export default function MedicineStorePage() {
                                 </div>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {filteredMedicines.map((med) => (
-                                    <MedicineCard key={med.id} medicine={med} />
-                                ))}
-                            </div>
+                            <>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {visibleMedicines.map((med) => (
+                                        <MedicineCard key={med.id} medicine={med} />
+                                    ))}
+                                </div>
+
+                                {/* Load More Pagination Controls */}
+                                {filteredMedicines.length > visibleCount && (
+                                    <div className="mt-8 pt-4 border-t border-gray-100 flex flex-col items-center justify-center gap-3">
+                                        <p className="text-xs text-gray-500 font-medium">
+                                            Showing <span className="font-bold text-gray-800">{visibleMedicines.length}</span> of{' '}
+                                            <span className="font-bold text-gray-800">{filteredMedicines.length}</span> medicines
+                                        </p>
+                                        <div className="w-full max-w-xs bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                            <div
+                                                className="bg-blue-600 h-full rounded-full transition-all duration-300"
+                                                style={{ width: `${(visibleMedicines.length / filteredMedicines.length) * 100}%` }}
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setVisibleCount((prev) => Math.min(prev + 24, filteredMedicines.length))}
+                                            className="mt-1 bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 hover:border-blue-400 font-bold text-xs sm:text-sm px-6 py-2.5 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                                        >
+                                            <Sparkles size={14} className="text-blue-500" />
+                                            <span>Load Next 24 Medicines ({filteredMedicines.length - visibleMedicines.length} remaining)</span>
+                                        </button>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </main>
 

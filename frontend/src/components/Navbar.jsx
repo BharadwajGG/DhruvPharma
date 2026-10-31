@@ -166,8 +166,8 @@ export default function Navbar() {
                         </span>
                     </div>
                     <div className="flex items-center gap-3">
-                        <span className="hidden sm:inline font-medium text-xs text-blue-100">
-                            🕒 Mon – Sat | 9:00 AM – 8:00 PM
+                        <span className="hidden sm:inline font-semibold text-xs text-emerald-200">
+                            ⚡ 24/7 Service Available
                         </span>
                         {isAdmin && (
                             <Link

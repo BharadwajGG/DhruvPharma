@@ -109,7 +109,7 @@ export default function MarketingBannerCarousel() {
             id: 'order-via-call',
             badge: 'Call Helpline',
             badgeBg: 'bg-purple-700 text-white',
-            brandTag: 'MON–SAT | 9 AM – 8 PM',
+            brandTag: 'AVAILABLE 24/7',
             headline: 'ORDER VIA PHARMACIST CALL',
             subheadline: 'Don’t want to type? Speak directly with our pharmacist or WhatsApp your prescription slip to 95035 00725.',
             bgClass: 'bg-gradient-to-br from-purple-50 via-fuchsia-100/60 to-purple-100 border-purple-200/70',
