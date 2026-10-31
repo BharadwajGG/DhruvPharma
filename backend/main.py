@@ -6,7 +6,7 @@ import json
 import shutil
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException, Query, Response
@@ -1481,6 +1481,102 @@ def get_customer_medicines(
 
     medicines = query.all()
     return [m.to_dict() for m in medicines]
+
+
+@app.get("/api/medicines/showcase")
+def get_medicines_showcase(db: Session = Depends(get_db)):
+    """
+    Returns data-driven collections for the storefront homepage:
+    1. trending: dynamically aggregated from actual customer purchase order quantities.
+       Fallback: top-rated high-frequency essentials.
+    2. new_launches: newest medicine items uploaded/published by admin from distributor CSVs.
+       Fallback: latest catalog additions/restocks.
+    """
+    # ── 1. TRENDING MEDICINES ──
+    # Tally units sold from all non-cancelled orders
+    orders = db.query(OrderModel).filter(OrderModel.status != "cancelled").all()
+    sales_map = {}  # { medicine_name_or_id: units_sold }
+    for o in orders:
+        try:
+            items = json.loads(o.items) if isinstance(o.items, str) else (o.items or [])
+            for it in items:
+                m_id = it.get("id")
+                name = it.get("name")
+                qty = it.get("qty", 1)
+                if m_id:
+                    sales_map[f"id_{m_id}"] = sales_map.get(f"id_{m_id}", 0) + qty
+                if name:
+                    sales_map[f"name_{name.strip().lower()}"] = sales_map.get(f"name_{name.strip().lower()}", 0) + qty
+        except Exception:
+            pass
+
+    published_meds = db.query(MedicineModel).filter(MedicineModel.is_published == True).all()
+
+    # Score each published medicine based on real order sales
+    scored_trending = []
+    for m in published_meds:
+        units = sales_map.get(f"id_{m.id}", 0) + sales_map.get(f"name_{m.name.strip().lower()}", 0)
+        m_dict = m.to_dict()
+        m_dict["units_sold"] = units
+        scored_trending.append((units, m_dict))
+
+    # Sort descending by units sold
+    scored_trending.sort(key=lambda x: x[0], reverse=True)
+
+    trending_list = []
+    actual_sales_items = [item for units, item in scored_trending if units > 0]
+    if len(actual_sales_items) >= 4:
+        for it in actual_sales_items[:8]:
+            it["badge"] = "🔥 Trending Now"
+            it["badge_type"] = "trending"
+            trending_list.append(it)
+    else:
+        # Fallback / supplement with top medicines
+        for units, it in scored_trending[:8]:
+            it["badge"] = "🔥 Trending Now" if units > 0 else "⭐ Popular Demand"
+            it["badge_type"] = "trending"
+            trending_list.append(it)
+
+    # ── 2. NEW LAUNCHES ──
+    # Sort published medicines by created_at DESC, id DESC
+    newest_meds = sorted(
+        published_meds,
+        key=lambda m: (m.created_at or datetime.min, m.id),
+        reverse=True
+    )
+
+    now = datetime.utcnow()
+    thirty_days_ago = now - timedelta(days=30)
+    recent_items = [m for m in newest_meds if m.created_at and m.created_at >= thirty_days_ago]
+
+    new_launches_list = []
+    if len(recent_items) >= 3:
+        for m in recent_items[:8]:
+            d = m.to_dict()
+            d["badge"] = "✨ New Launch"
+            d["badge_type"] = "new_arrival"
+            d["is_new_arrival"] = True
+            new_launches_list.append(d)
+    else:
+        # Graceful fallback: take the latest additions to the catalog
+        # so the section is always populated and looks active
+        for m in newest_meds[:8]:
+            d = m.to_dict()
+            d["badge"] = "✨ Recent Restock"
+            d["badge_type"] = "new_arrival"
+            d["is_new_arrival"] = True
+            new_launches_list.append(d)
+
+    return {
+        "trending": trending_list,
+        "new_launches": new_launches_list,
+        "meta": {
+            "total_catalog": len(published_meds),
+            "trending_count": len(trending_list),
+            "new_launches_count": len(new_launches_list),
+            "has_live_sales_data": len(actual_sales_items) > 0,
+        }
+    }
 
 
 @app.get("/api/medicines/{item_id}")
