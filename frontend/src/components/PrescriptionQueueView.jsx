@@ -13,6 +13,7 @@ import {
     ExternalLink,
     RotateCw,
     Loader2,
+    Trash2,
 } from 'lucide-react'
 
 export const INITIAL_PRESCRIPTIONS = [
@@ -74,13 +75,19 @@ export const INITIAL_PRESCRIPTIONS = [
 ]
 
 const STATUS_CONFIG = {
-    pending:  { label: 'Pending',  style: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: Clock },
-    reviewed: { label: 'Reviewed', style: 'bg-blue-100 text-blue-700 border-blue-200',       icon: Eye },
-    approved: { label: 'Approved', style: 'bg-green-100 text-green-700 border-green-200',    icon: CheckCircle },
-    rejected: { label: 'Rejected', style: 'bg-red-100 text-red-700 border-red-200',          icon: XCircle },
+    pending:  { label: 'Waiting Review',  style: 'bg-amber-100 text-amber-900 border-amber-200',   icon: Clock },
+    reviewed: { label: 'Checked',         style: 'bg-blue-100 text-blue-900 border-blue-200',      icon: Eye },
+    approved: { label: 'Approved',        style: 'bg-emerald-100 text-emerald-900 border-emerald-200', icon: CheckCircle },
+    rejected: { label: 'Rejected',        style: 'bg-rose-100 text-rose-900 border-rose-200',       icon: XCircle },
 }
 
-const FILTER_TABS = ['all', 'pending', 'reviewed', 'approved', 'rejected']
+const FILTER_TABS = [
+    { key: 'all',      label: 'All Prescriptions' },
+    { key: 'pending',  label: 'Waiting Review' },
+    { key: 'reviewed', label: 'Checked' },
+    { key: 'approved', label: 'Approved' },
+    { key: 'rejected', label: 'Rejected' },
+]
 
 export default function PrescriptionQueueView({ title = 'Prescriptions', subtitle }) {
     const [prescriptions, setPrescriptions] = useState(INITIAL_PRESCRIPTIONS)
@@ -146,6 +153,23 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
         }
     }
 
+    const handleDeletePrescription = async (id, patientName) => {
+        if (!window.confirm(`Delete prescription request for "${patientName || id}"? This request will be permanently removed.`)) {
+            return
+        }
+        setPrescriptions((prev) => prev.filter((rx) => rx.id !== id))
+        if (selected && selected.id === id) {
+            setSelected(null)
+        }
+        try {
+            await fetch(`http://localhost:8000/api/prescriptions/${id}`, {
+                method: 'DELETE',
+            })
+        } catch (err) {
+            console.error('Failed to delete prescription from server:', err)
+        }
+    }
+
     return (
         <div className="max-w-6xl mx-auto">
             {/* Header */}
@@ -169,25 +193,29 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
 
             {/* Filter Tabs */}
             <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-                {FILTER_TABS.map((tab) => (
-                    <button
-                        key={tab}
-                        onClick={() => setFilter(tab)}
-                        className={`shrink-0 px-4 py-2 rounded-xl text-sm font-medium capitalize transition-colors border
-                            ${filter === tab
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
-                            }`}
-                    >
-                        {tab === 'all' ? `All (${prescriptions.length})` : tab}
-                        {tab === 'pending' && pendingCount > 0 && (
-                            <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full
-                                ${filter === 'pending' ? 'bg-white/20 text-white' : 'bg-red-500 text-white'}`}>
-                                {pendingCount}
+                {FILTER_TABS.map((tab) => {
+                    const count = tab.key === 'all'
+                        ? prescriptions.length
+                        : prescriptions.filter((rx) => rx.status === tab.key).length
+                    return (
+                        <button
+                            key={tab.key}
+                            onClick={() => setFilter(tab.key)}
+                            className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-colors border cursor-pointer flex items-center gap-1.5
+                                ${filter === tab.key
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
+                                }`}
+                        >
+                            <span>{tab.label}</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                filter === tab.key ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                                {count}
                             </span>
-                        )}
-                    </button>
-                ))}
+                        </button>
+                    )
+                })}
             </div>
 
             {/* Prescription List */}
@@ -213,9 +241,13 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                                         <span className="text-xs text-gray-500 flex items-center gap-1">
                                             <MapPin size={11} /> {rx.district}
                                         </span>
-                                        <span className="text-xs text-gray-500 flex items-center gap-1">
-                                            <Phone size={11} /> {rx.phone}
-                                        </span>
+                                        <a
+                                            href={`tel:${rx.phone}`}
+                                            className="text-xs text-slate-700 hover:text-emerald-700 hover:underline flex items-center gap-1 font-semibold"
+                                            title="Click to call customer"
+                                        >
+                                            <Phone size={11} className="text-emerald-600" /> {rx.phone}
+                                        </a>
                                         <span className="text-xs text-gray-500 flex items-center gap-1">
                                             <FileText size={11} /> {rx.files.length} file(s)
                                         </span>
@@ -232,10 +264,10 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                             </div>
 
                             {/* Actions */}
-                            <div className="flex gap-2 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0">
                                 <button
                                     onClick={() => handleOpenReview(rx)}
-                                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
                                 >
                                     <Eye size={13} /> Review
                                 </button>
@@ -243,18 +275,25 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                                     <>
                                         <button
                                             onClick={() => handleUpdateStatus(rx.id, 'approved')}
-                                            className="flex items-center gap-1.5 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                                            className="flex items-center gap-1.5 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
                                         >
                                             <CheckCircle size={13} /> Approve
                                         </button>
                                         <button
                                             onClick={() => handleUpdateStatus(rx.id, 'rejected')}
-                                            className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                                            className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
                                         >
                                             <XCircle size={13} /> Reject
                                         </button>
                                     </>
                                 )}
+                                <button
+                                    onClick={() => handleDeletePrescription(rx.id, rx.patient)}
+                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Delete prescription request"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
                             </div>
                         </div>
                     )
@@ -397,6 +436,20 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                                     </button>
                                 </div>
                             )}
+                            <div className="pt-2 flex items-center justify-between border-t border-gray-100 gap-3">
+                                <button
+                                    onClick={() => handleDeletePrescription(selected.id, selected.patient)}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                    <Trash2 size={14} /> Delete Request
+                                </button>
+                                <button
+                                    onClick={() => setSelected(null)}
+                                    className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                                >
+                                    Close
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

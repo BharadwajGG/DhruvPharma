@@ -147,9 +147,13 @@ function ShowcaseMedicineCard({ medicine, badgeLabel, badgeType }) {
                     )}
                 </div>
 
-                {requiresRx && (
-                    <span className="absolute top-2.5 right-2.5 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-red-200 z-10">
-                        Rx
+                {requiresRx ? (
+                    <span className="absolute top-2.5 right-2.5 bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 z-10 shadow-2xs" title="Doctor prescription required">
+                        Rx Needed
+                    </span>
+                ) : (
+                    <span className="absolute top-2.5 right-2.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 z-10 shadow-2xs" title="No prescription required">
+                        Direct Buy
                     </span>
                 )}
             </div>

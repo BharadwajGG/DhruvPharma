@@ -276,8 +276,8 @@ def generate_order_email_html(order: Dict[str, Any]) -> str:
 
                 <!-- Footer support -->
                 <div style="background-color: #f1f5f9; border-radius: 10px; padding: 14px; text-align: center; font-size: 12px; color: #475569;">
-                    Need help with your prescription order? Call us at <strong>+91 98765 43210</strong><br>
-                    Shop Address: Dhruv Pharma, Maharashtra.
+                    Need help with your prescription order? Call us at <strong>+91 9503500725</strong><br>
+                    Shop Address: First Floor, Plot No. 122-133, Shop No. C/135, Gokuldham Complex, Shahada Road, Nandurbar - 425412.
                 </div>
             </div>
         </div>
@@ -295,18 +295,76 @@ def generate_whatsapp_message(order: Dict[str, Any]) -> str:
     district = order.get("district", "")
 
     return (
-        f"Namaskar {patient}!\n\n"
-        f"Your order #{order_id} at DhruvPharma for Rs. {amount} has been confirmed.\n\n"
+        f"Hello {patient},\n\n"
+        f"Your order #{order_id} at Dhruv Pharma for ₹{amount} has been received.\n\n"
         f"📍 Delivery Address: {address}, {district}\n"
-        f"Estimated delivery time: 2–4 hours.\n\n"
+        f"Expected delivery: 3–4 Days.\n"
+        f"Helpline: +91 9503500725\n\n"
         f"Track your order here: http://localhost:5173/order-tracking?id={order_id}"
     )
 
 
-def send_order_email(order: Dict[str, Any]) -> bool:
-    """Sends confirmation email or logs receipt."""
+def generate_cancellation_email_html(order: Dict[str, Any], cancelled_by: str = "store", reason: str = "") -> str:
+    """Generates an HTML cancellation notification email for customer."""
+    order_id = order.get("orderId", order.get("id", ""))
+    patient = order.get("customerName", order.get("patient", "Customer"))
+    amount = order.get("totalAmount", order.get("amount", 0))
+    reason_text = reason or ("Cancelled by store owner / pharmacist" if cancelled_by == "store" else "Cancelled upon customer request")
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"><title>Order Cancellation Notice</title></head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #fee2e2; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+            <div style="background-color: #dc2626; padding: 24px 32px; text-align: left;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: bold;">Dhruv Pharma</h1>
+                <p style="color: #fecaca; margin: 4px 0 0 0; font-size: 12px;">Licensed Chemist &amp; Druggist · Nandurbar</p>
+            </div>
+            <div style="padding: 28px 32px;">
+                <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 14px 18px; margin-bottom: 24px;">
+                    <p style="color: #991b1b; font-size: 14px; font-weight: bold; margin: 0;">Order #{order_id} has been Cancelled</p>
+                    <p style="color: #b91c1c; font-size: 12px; margin: 4px 0 0 0;">
+                        Hello {patient}, your order for ₹{amount:.2f} has been cancelled.
+                    </p>
+                </div>
+                <div style="background-color: #f8fafc; border-radius: 10px; padding: 14px 16px; margin-bottom: 24px; font-size: 13px; color: #475569;">
+                    <p style="margin: 0 0 6px 0;"><strong>Reason:</strong> {reason_text}</p>
+                    <p style="margin: 0;"><strong>Cancelled by:</strong> {'Store Owner / Pharmacist' if cancelled_by == 'store' else 'Customer'}</p>
+                </div>
+                <div style="background-color: #f1f5f9; border-radius: 10px; padding: 14px; text-align: center; font-size: 12px; color: #475569;">
+                    If you have questions or need assistance, please call us at <strong>+91 9503500725</strong> or email <strong>dhruvpharma25@gmail.com</strong>.<br>
+                    First Floor, Plot No. 122-133, Shop No. C/135, Gokuldham Complex, Shahada Road, Nandurbar - 425412.
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+def generate_cancellation_whatsapp_message(order: Dict[str, Any], cancelled_by: str = "store", reason: str = "") -> str:
+    """Creates formatted text message for WhatsApp order cancellation."""
+    order_id = order.get("orderId", order.get("id", ""))
+    patient = order.get("customerName", order.get("patient", "Customer"))
+    reason_text = reason or ("Cancelled by store owner" if cancelled_by == "store" else "Cancelled upon customer request")
+
+    return (
+        f"Dhruv Pharma Order Update:\n\n"
+        f"Hello {patient},\n"
+        f"Your order #{order_id} has been CANCELLED.\n\n"
+        f"Details:\n"
+        f"• Status: Cancelled\n"
+        f"• Reason: {reason_text}\n"
+        f"• Cancelled By: {'Store Owner / Pharmacist' if cancelled_by == 'store' else 'Customer'}\n\n"
+        f"If you need help or want to re-order, please call our helpline: +91 9503500725 or visit http://localhost:5173"
+    )
+
+
+def send_order_email(order: Dict[str, Any], subject: str = "Dhruv Pharma Order Update", html_content: str = None) -> bool:
+    """Sends email or logs notification dispatch."""
     recipient = order.get("customerEmail") or order.get("email")
     order_id = order.get("orderId", order.get("id"))
-    logger.info(f"[EMAIL DISPATCH] Triggering Order Invoice for #{order_id} to recipient: {recipient or 'no-email-provided'}")
+    logger.info(f"[EMAIL DISPATCH] ({subject}) for #{order_id} to recipient: {recipient or 'no-email-provided'}")
     return True
 

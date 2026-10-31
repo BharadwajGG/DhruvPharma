@@ -117,28 +117,38 @@ export default function MyOrdersPage() {
     }
 
     // Fetch orders strictly scoped to authenticated user
+    const currentUid = currentUser?.uid
+    const currentEmail = currentUser?.email
+
     const fetchOrders = async () => {
-        if (!currentUser) {
-            setOrders([])
+        if (!currentUid && !currentEmail) {
+            setOrders(customerOrders || [])
             setIsLoading(false)
             return
         }
 
         setIsLoading(true)
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 6000)
+
         try {
             // Strictly scope query by logged-in user's UID and email
             const queryParams = new URLSearchParams()
-            if (currentUser.uid) queryParams.set('userId', currentUser.uid)
-            if (currentUser.email) queryParams.set('email', currentUser.email)
+            if (currentUid) queryParams.set('userId', currentUid)
+            if (currentEmail) queryParams.set('email', currentEmail)
 
-            const res = await fetch(`http://localhost:8000/api/orders?${queryParams.toString()}`)
+            const res = await fetch(`http://localhost:8000/api/orders?${queryParams.toString()}`, {
+                signal: controller.signal,
+            })
+            clearTimeout(timeoutId)
+
             if (res.ok) {
                 const serverOrders = await res.json()
                 if (Array.isArray(serverOrders)) {
                     // Double security check on client: ensure no other user's order slips through
                     const isolated = serverOrders.filter((o) => {
-                        const matchesUid = o.userId && o.userId === currentUser.uid
-                        const matchesEmail = o.email && currentUser.email && o.email.toLowerCase() === currentUser.email.toLowerCase()
+                        const matchesUid = o.userId && o.userId === currentUid
+                        const matchesEmail = o.email && currentEmail && o.email.toLowerCase() === currentEmail.toLowerCase()
                         return matchesUid || matchesEmail
                     })
                     setOrders(isolated)
@@ -151,6 +161,7 @@ export default function MyOrdersPage() {
             console.warn('Backend unavailable, using isolated local orders:', err)
             setOrders(customerOrders || [])
         } finally {
+            clearTimeout(timeoutId)
             setIsLoading(false)
         }
     }
@@ -159,11 +170,11 @@ export default function MyOrdersPage() {
         if (!authLoading) {
             fetchOrders()
         }
-    }, [currentUser, authLoading])
+    }, [currentUid, currentEmail, authLoading])
 
     // Real-Time Server-Sent Events (SSE) Listener: live updates scoped strictly to this user
     useEffect(() => {
-        if (!currentUser) return
+        if (!currentUid && !currentEmail) return
 
         let eventSource = null
         try {
@@ -176,25 +187,23 @@ export default function MyOrdersPage() {
                     // 1. Live status or expected delivery update
                     if (parsed.type === 'status_update' && parsed.order) {
                         const updated = parsed.order
-                        // Only update if it belongs to current user
-                        const isMine =
-                            updated.userId === currentUser.uid ||
-                            (updated.email && currentUser.email && updated.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-                            orders.some((o) => o.id === updated.id || o.orderId === updated.id)
+                        setOrders((prev) => {
+                            const isMine =
+                                updated.userId === currentUid ||
+                                (updated.email && currentEmail && updated.email.toLowerCase() === currentEmail.toLowerCase()) ||
+                                prev.some((o) => o.id === updated.id || o.orderId === updated.id)
 
-                        if (isMine) {
-                            setOrders((prev) =>
-                                prev.map((o) => (o.id === updated.id || o.orderId === updated.id ? updated : o))
-                            )
-                        }
+                            if (!isMine) return prev
+                            return prev.map((o) => (o.id === updated.id || o.orderId === updated.id ? { ...o, ...updated } : o))
+                        })
                     }
 
                     // 2. Newly placed order
                     if (parsed.type === 'new_order' && parsed.order) {
                         const newOrder = parsed.order
                         const isMine =
-                            newOrder.userId === currentUser.uid ||
-                            (newOrder.email && currentUser.email && newOrder.email.toLowerCase() === currentUser.email.toLowerCase())
+                            newOrder.userId === currentUid ||
+                            (newOrder.email && currentEmail && newOrder.email.toLowerCase() === currentEmail.toLowerCase())
 
                         if (isMine) {
                             setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)])
@@ -211,6 +220,11 @@ export default function MyOrdersPage() {
                     // Ignore parsing glitches or heartbeats
                 }
             }
+
+            eventSource.onerror = () => {
+                // Silently keep current data if connection drops
+                eventSource.close()
+            }
         } catch (e) {
             console.warn('Real-time connection error:', e)
         }
@@ -218,7 +232,7 @@ export default function MyOrdersPage() {
         return () => {
             if (eventSource) eventSource.close()
         }
-    }, [currentUser, orders])
+    }, [currentUid, currentEmail])
 
     const handleGoogleSignIn = async () => {
         setAuthError('')

@@ -59,7 +59,7 @@ export default function CartPage() {
     // Checkout Form State (defaults to user's selected delivery location)
     const [formData, setFormData] = useState({
         customerName: currentUser?.displayName || '',
-        phone: '',
+        phone: localStorage.getItem('dhruv_user_phone') || '',
         email: currentUser?.email || '',
         district: selectedLocation?.district || 'Nandurbar',
         areaName: selectedLocation?.name || 'Nandurbar',
@@ -87,10 +87,27 @@ export default function CartPage() {
     const [couponDiscount, setCouponDiscount] = useState(0)
     const [couponMsg, setCouponMsg] = useState('')
     const [isValidatingCoupon, setIsValidatingCoupon] = useState(false)
+    const [publicCoupons, setPublicCoupons] = useState([])
     const [savedAddresses, setSavedAddresses] = useState([])
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [orderSuccess, setOrderSuccess] = useState(null)
     const [formErrors, setFormErrors] = useState({})
+
+    // Fetch public showcase coupons (only coupons owner selected to show in cart)
+    useEffect(() => {
+        const fetchPublicCoupons = async () => {
+            try {
+                const res = await fetch('http://localhost:8000/api/coupons/public')
+                if (res.ok) {
+                    const data = await res.json()
+                    setPublicCoupons(Array.isArray(data) ? data : [])
+                }
+            } catch (err) {
+                // Silently ignore if offline
+            }
+        }
+        fetchPublicCoupons()
+    }, [])
 
     // Load saved addresses on mount
     useEffect(() => {
@@ -137,6 +154,17 @@ export default function CartPage() {
         setIsValidatingCoupon(true)
         setCouponMsg('')
 
+        // Ensure persistent device ID
+        let clientId = localStorage.getItem('dhruv_client_id')
+        if (!clientId) {
+            clientId = 'guest_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
+            localStorage.setItem('dhruv_client_id', clientId)
+        }
+
+        const savedPhone = (formData.phone || localStorage.getItem('dhruv_user_phone') || '').trim()
+        const checkEmail = (formData.email || currentUser?.email || '').trim()
+        const checkUserId = currentUser?.uid || savedPhone || checkEmail || clientId
+
         try {
             const res = await fetch('http://localhost:8000/api/coupons/validate', {
                 method: 'POST',
@@ -144,7 +172,9 @@ export default function CartPage() {
                 body: JSON.stringify({
                     code: cleanCode,
                     subtotal: subtotal,
-                    userId: currentUser?.uid || currentUser?.email || formData.phone || '',
+                    userId: checkUserId,
+                    phone: savedPhone,
+                    email: checkEmail,
                 }),
             })
             const data = await res.json()
@@ -155,22 +185,12 @@ export default function CartPage() {
             } else {
                 setCouponApplied(false)
                 setCouponDiscount(0)
-                setCouponMsg(data.message || 'Invalid coupon code.')
+                setCouponMsg(data.message || 'Invalid coupon code or usage limit exceeded.')
             }
         } catch (e) {
-            if (cleanCode === 'DHRUV10') {
-                const disc = Math.round(subtotal * 0.1)
-                setCouponApplied(true)
-                setCouponDiscount(disc)
-                setCouponMsg(`Coupon DHRUV10 applied! Saved ₹${disc}`)
-            } else if (cleanCode === 'WELCOME50') {
-                const disc = Math.min(50, subtotal)
-                setCouponApplied(true)
-                setCouponDiscount(disc)
-                setCouponMsg(`Coupon WELCOME50 applied! Saved ₹${disc}`)
-            } else {
-                setCouponMsg('Invalid coupon. Try DHRUV10 or WELCOME50.')
-            }
+            setCouponApplied(false)
+            setCouponDiscount(0)
+            setCouponMsg('Unable to validate coupon code at this time. Please try again.')
         } finally {
             setIsValidatingCoupon(false)
         }
@@ -601,23 +621,23 @@ export default function CartPage() {
 
                                 <div className="space-y-2.5 text-gray-600">
                                     <div className="flex justify-between">
-                                        <span>Cart Subtotal:</span>
+                                        <span>Medicines Price:</span>
                                         <span className="font-semibold text-gray-800">₹{subtotal.toFixed(2)}</span>
                                     </div>
                                     {totalSavings > 0 && (
                                         <div className="flex justify-between text-green-700">
-                                            <span>Total MRP Discount:</span>
+                                            <span>Total Savings on MRP:</span>
                                             <span className="font-semibold">-₹{totalSavings.toFixed(2)}</span>
                                         </div>
                                     )}
                                     {couponApplied && (
                                         <div className="flex justify-between text-green-700 font-semibold">
-                                            <span>Special Discount (DHRUV5):</span>
+                                            <span>Coupon Discount ({coupon.trim().toUpperCase()}):</span>
                                             <span>-₹{discountAmount.toFixed(2)}</span>
                                         </div>
                                     )}
                                     <div className="flex justify-between">
-                                        <span>Regional Delivery Fee:</span>
+                                        <span>Home Delivery Fee:</span>
                                         <span className="font-semibold text-gray-800">
                                             {deliveryFee === 0 ? (
                                                 <span className="text-green-600 font-bold">FREE (Above ₹300)</span>
@@ -627,17 +647,17 @@ export default function CartPage() {
                                         </span>
                                     </div>
                                     <div className="border-t border-gray-100 pt-2 flex justify-between text-sm font-bold text-gray-900">
-                                        <span>Total Payable:</span>
+                                        <span>Total Amount to Pay:</span>
                                         <span className="text-blue-700 text-base">₹{finalPayable.toFixed(2)}</span>
                                     </div>
                                 </div>
 
-                                {/* Coupon Input */}
+                                {/* Coupon Input (Owner controls whether coupon buttons appear) */}
                                 <div className="pt-2 border-t border-gray-100">
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
-                                            placeholder="Coupon (e.g. DHRUV10)"
+                                            placeholder="Enter Coupon Code (Optional)"
                                             value={coupon}
                                             onChange={(e) => setCoupon(e.target.value)}
                                             className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-blue-500 uppercase font-mono"
@@ -659,22 +679,23 @@ export default function CartPage() {
                                         </p>
                                     )}
 
-                                    {!couponApplied && (
+                                    {/* Show coupon pills ONLY if owner has explicitly enabled showcase in cart */}
+                                    {!couponApplied && publicCoupons && publicCoupons.length > 0 && (
                                         <div className="flex flex-wrap gap-1.5 mt-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setCoupon('DHRUV10')}
-                                                className="text-[10px] font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-0.5 rounded border border-blue-200 cursor-pointer"
-                                            >
-                                                🏷️ DHRUV10 (10% OFF)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setCoupon('WELCOME50')}
-                                                className="text-[10px] font-mono bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
-                                            >
-                                                🎁 WELCOME50 (₹50 OFF)
-                                            </button>
+                                            {publicCoupons.map((pc) => (
+                                                <button
+                                                    key={pc.id}
+                                                    type="button"
+                                                    onClick={() => setCoupon(pc.code)}
+                                                    className="text-[10px] font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 cursor-pointer flex items-center gap-1 transition-colors"
+                                                    title={`Click to apply ${pc.code}`}
+                                                >
+                                                    <span>🏷️ {pc.code}</span>
+                                                    <span className="text-[9px] text-blue-600 font-sans">
+                                                        ({pc.discount_type === 'percentage' ? `${pc.discount_value}% OFF` : `₹${pc.discount_value} OFF`})
+                                                    </span>
+                                                </button>
+                                            ))}
                                         </div>
                                     )}
                                 </div>
@@ -688,6 +709,20 @@ export default function CartPage() {
                                     <span>Proceed to Checkout</span>
                                     <ArrowRight size={16} />
                                 </button>
+
+                                {/* Direct Pharmacy Assistance Box */}
+                                <div className="mt-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between text-[11px] text-slate-700">
+                                    <div className="flex items-center gap-1.5">
+                                        <Phone size={13} className="text-emerald-600 shrink-0" />
+                                        <span>Need help? Call pharmacy:</span>
+                                    </div>
+                                    <a
+                                        href="tel:9503500725"
+                                        className="font-bold text-emerald-700 hover:underline font-mono"
+                                    >
+                                        9503500725
+                                    </a>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -695,281 +730,349 @@ export default function CartPage() {
 
                 {/* ── STEP 2: CHECKOUT DETAILS & CONFIRMATION ── */}
                 {step === 'checkout' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                        {/* Form Column */}
-                        <div className="lg:col-span-7 bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
-                            <h3 className="font-bold text-gray-900 text-sm pb-2 border-b border-gray-100 flex items-center gap-1.5">
-                                <MapPin size={16} className="text-blue-600" /> Enter Delivery Information
-                            </h3>
+                    <form onSubmit={handlePlaceOrder} className="space-y-5">
+                        {/* Top Back & Assurance Header */}
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                            <button
+                                type="button"
+                                onClick={() => setStep('cart')}
+                                className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1.5 cursor-pointer bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-2xs hover:bg-blue-50 transition-colors"
+                            >
+                                <ArrowLeft size={14} />
+                                <span>Back to Bag</span>
+                            </button>
+                            <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                                <ShieldCheck size={15} className="text-emerald-600" />
+                                <span>100% Genuine Pharmacy · Safe Checkout</span>
+                            </span>
+                        </div>
 
-                            {!currentUser && (
-                                <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-                                    <div className="flex items-center gap-2 text-blue-900">
-                                        <span className="text-base">👤</span>
-                                        <span>Sign in to save this order to your account automatically.</span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            try {
-                                                const res = await loginWithGoogle()
-                                                if (res?.user) {
-                                                    setFormData((prev) => ({
-                                                        ...prev,
-                                                        customerName: res.user.displayName || prev.customerName,
-                                                        email: res.user.email || prev.email,
-                                                    }))
-                                                }
-                                            } catch (e) {
-                                                console.error('Google sign-in during checkout:', e)
-                                            }
-                                        }}
-                                        className="shrink-0 self-start sm:self-auto bg-white hover:bg-gray-50 text-gray-700 font-semibold text-xs px-3 py-1.5 rounded-lg border border-gray-300 shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                                        </svg>
-                                        <span>Sign in with Google</span>
-                                    </button>
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                            {/* Left Column: Delivery Address & Patient Details (7 cols) */}
+                            <div className="lg:col-span-7 bg-white rounded-2xl border border-gray-100 shadow-xs p-5 sm:p-6 space-y-4 text-xs">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                                    <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                                        <MapPin size={16} className="text-blue-600" />
+                                        <span>Delivery &amp; Patient Information</span>
+                                    </h3>
+                                    <span className="text-[11px] text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full font-bold">
+                                        Nandurbar District
+                                    </span>
                                 </div>
-                            )}
 
-                            {/* Saved Delivery Addresses Quick Selector */}
-                            {savedAddresses.length > 0 && (
-                                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 mb-2">
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <p className="text-[11px] font-bold text-emerald-950 flex items-center gap-1.5">
-                                            <MapPin size={12} className="text-emerald-600" />
-                                            <span>Deliver to a Saved Address:</span>
-                                        </p>
-                                        <Link to="/profile" className="text-[10px] text-emerald-700 font-bold hover:underline">
-                                            Manage Addresses &rarr;
-                                        </Link>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {savedAddresses.map((addr) => {
-                                            const isSelected = formData.pincode === addr.pincode && formData.address === addr.address
-                                            return (
-                                                <button
-                                                    key={addr.id}
-                                                    type="button"
-                                                    onClick={() => {
+                                {!currentUser && (
+                                    <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                                        <div className="flex items-center gap-2 text-blue-900">
+                                            <span className="text-base">👤</span>
+                                            <span>Sign in to save this order to your account automatically.</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await loginWithGoogle()
+                                                    if (res?.user) {
                                                         setFormData((prev) => ({
                                                             ...prev,
-                                                            address: addr.address,
-                                                            pincode: addr.pincode,
-                                                            district: addr.district || prev.district,
-                                                            areaName: addr.areaName || prev.areaName,
+                                                            customerName: res.user.displayName || prev.customerName,
+                                                            email: res.user.email || prev.email,
                                                         }))
-                                                        setLocationByPincode(addr.pincode)
-                                                    }}
-                                                    className={`text-left text-[11px] px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer ${
-                                                        isSelected
-                                                            ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
-                                                            : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300 font-medium'
-                                                    }`}
-                                                >
-                                                    <span className="font-bold">[{addr.label}]</span> {addr.areaName || addr.district} ({addr.pincode})
-                                                </button>
-                                            )
-                                        })}
+                                                    }
+                                                } catch (e) {
+                                                    console.error('Google sign-in during checkout:', e)
+                                                }
+                                            }}
+                                            className="shrink-0 self-start sm:self-auto bg-white hover:bg-gray-50 text-gray-700 font-semibold text-xs px-3 py-1.5 rounded-lg border border-gray-300 shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                            </svg>
+                                            <span>Sign in with Google</span>
+                                        </button>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            <form onSubmit={handlePlaceOrder} className="space-y-3.5 text-xs">
-                                <div>
-                                    <label className="block font-semibold text-gray-700 mb-1">
-                                        Patient / Customer Name <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="Full Name"
-                                        value={formData.customerName}
-                                        onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                                        className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 ${
-                                            formErrors.customerName ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
-                                        }`}
-                                    />
-                                    {formErrors.customerName && (
-                                        <p className="text-[11px] text-red-500 mt-1">{formErrors.customerName}</p>
-                                    )}
-                                </div>
+                                {/* Saved Delivery Addresses Quick Selector */}
+                                {savedAddresses.length > 0 && (
+                                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 mb-2">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <p className="text-[11px] font-bold text-emerald-950 flex items-center gap-1.5">
+                                                <MapPin size={12} className="text-emerald-600" />
+                                                <span>Deliver to a Saved Address:</span>
+                                            </p>
+                                            <Link to="/profile" className="text-[10px] text-emerald-700 font-bold hover:underline">
+                                                Manage Addresses &rarr;
+                                            </Link>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {savedAddresses.map((addr) => {
+                                                const isSelected = formData.pincode === addr.pincode && formData.address === addr.address
+                                                return (
+                                                    <button
+                                                        key={addr.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setFormData((prev) => ({
+                                                                ...prev,
+                                                                address: addr.address,
+                                                                pincode: addr.pincode,
+                                                                district: addr.district || prev.district,
+                                                                areaName: addr.areaName || prev.areaName,
+                                                            }))
+                                                            setLocationByPincode(addr.pincode)
+                                                        }}
+                                                        className={`text-left text-[11px] px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                                                            isSelected
+                                                                ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
+                                                                : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300 font-medium'
+                                                        }`}
+                                                    >
+                                                        <span className="font-bold">[{addr.label}]</span> {addr.areaName || addr.district} ({addr.pincode})
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-3.5 pt-1">
                                     <div>
                                         <label className="block font-semibold text-gray-700 mb-1">
-                                            Phone Number <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="tel"
-                                            placeholder="10-digit mobile"
-                                            value={formData.phone}
-                                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                            className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 ${
-                                                formErrors.phone ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
-                                            }`}
-                                        />
-                                        {formErrors.phone && (
-                                            <p className="text-[11px] text-red-500 mt-1">{formErrors.phone}</p>
-                                        )}
-                                    </div>
-
-                                    <div>
-                                        <label className="block font-semibold text-gray-700 mb-1">
-                                            Email (For Invoice Receipt)
-                                        </label>
-                                        <input
-                                            type="email"
-                                            placeholder="name@email.com"
-                                            value={formData.email}
-                                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div className="flex items-center justify-between mb-1">
-                                        <label className="block font-semibold text-gray-700">
-                                            Select Delivery Hub / Town <span className="text-red-500">*</span>
-                                        </label>
-                                        <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full">
-                                            Expected in 3–4 Days
-                                        </span>
-                                    </div>
-                                    <select
-                                        value={formData.pincode}
-                                        onChange={(e) => {
-                                            const selectedPin = e.target.value
-                                            const match = checkPincode(selectedPin)
-                                            if (match) {
-                                                setFormData({
-                                                    ...formData,
-                                                    pincode: match.pincode,
-                                                    district: match.district,
-                                                    areaName: match.name,
-                                                })
-                                                setLocationByPincode(match.pincode)
-                                            }
-                                        }}
-                                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white font-medium text-xs"
-                                    >
-                                        {serviceableAreas.map((area) => (
-                                            <option key={area.pincode} value={area.pincode}>
-                                                {area.name} — PIN {area.pincode} ({area.district} Dist.) · 3–4 Days Delivery
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="block font-semibold text-gray-700 mb-1">
-                                            PIN Code <span className="text-red-500">*</span>
+                                            Patient / Customer Name <span className="text-red-500">*</span>
                                         </label>
                                         <input
                                             type="text"
-                                            maxLength={6}
-                                            placeholder="e.g. 425412"
-                                            value={formData.pincode}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/\D/g, '')
-                                                const match = checkPincode(val)
-                                                setFormData({
-                                                    ...formData,
-                                                    pincode: val,
-                                                    district: match ? match.district : formData.district,
-                                                    areaName: match ? match.name : formData.areaName,
-                                                })
-                                                if (match) setLocationByPincode(match.pincode)
-                                            }}
-                                            className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 font-mono ${
-                                                formErrors.pincode ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                            placeholder="Full Name"
+                                            value={formData.customerName}
+                                            onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                                            className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 ${
+                                                formErrors.customerName ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
                                             }`}
                                         />
-                                        {formErrors.pincode ? (
-                                            <p className="text-[11px] text-red-500 mt-1 leading-snug">{formErrors.pincode}</p>
-                                        ) : (
-                                            <p className="text-[10px] text-green-700 font-medium mt-1">
-                                                ✓ Authorized hub ({formData.areaName || 'Serviceable'}) · Expected in 3–4 Days
+                                        {formErrors.customerName && (
+                                            <p className="text-[11px] text-red-500 mt-1">{formErrors.customerName}</p>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Phone Number <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="tel"
+                                                placeholder="10-digit mobile"
+                                                value={formData.phone}
+                                                onChange={(e) => {
+                                                    const val = e.target.value
+                                                    setFormData({ ...formData, phone: val })
+                                                    const digits = val.replace(/\D/g, '')
+                                                    if (digits.length >= 10) {
+                                                        localStorage.setItem('dhruv_user_phone', digits)
+                                                    }
+                                                }}
+                                                className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 ${
+                                                    formErrors.phone ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                                }`}
+                                            />
+                                            {formErrors.phone && (
+                                                <p className="text-[11px] text-red-500 mt-1">{formErrors.phone}</p>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Email (For Invoice Receipt)
+                                            </label>
+                                            <input
+                                                type="email"
+                                                placeholder="name@email.com"
+                                                value={formData.email}
+                                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block font-semibold text-gray-700">
+                                                Select Delivery Hub / Town <span className="text-red-500">*</span>
+                                            </label>
+                                            <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full">
+                                                Expected in 3–4 Days
+                                            </span>
+                                        </div>
+                                        <select
+                                            value={formData.pincode}
+                                            onChange={(e) => {
+                                                const selectedPin = e.target.value
+                                                const match = checkPincode(selectedPin)
+                                                if (match) {
+                                                    setFormData({
+                                                        ...formData,
+                                                        pincode: match.pincode,
+                                                        district: match.district,
+                                                        areaName: match.name,
+                                                    })
+                                                    setLocationByPincode(match.pincode)
+                                                }
+                                            }}
+                                            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white font-medium text-xs"
+                                        >
+                                            {serviceableAreas.map((area) => (
+                                                <option key={area.pincode} value={area.pincode}>
+                                                    {area.name} — PIN {area.pincode} ({area.district} Dist.) · 3–4 Days Delivery
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                PIN Code <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                maxLength={6}
+                                                placeholder="e.g. 425412"
+                                                value={formData.pincode}
+                                                onChange={(e) => {
+                                                    const val = e.target.value.replace(/\D/g, '')
+                                                    const match = checkPincode(val)
+                                                    setFormData({
+                                                        ...formData,
+                                                        pincode: val,
+                                                        district: match ? match.district : formData.district,
+                                                        areaName: match ? match.name : formData.areaName,
+                                                    })
+                                                    if (match) setLocationByPincode(match.pincode)
+                                                }}
+                                                className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 font-mono ${
+                                                    formErrors.pincode ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                                }`}
+                                            />
+                                            {formErrors.pincode ? (
+                                                <p className="text-[11px] text-red-500 mt-1 leading-snug">{formErrors.pincode}</p>
+                                            ) : (
+                                                <p className="text-[10px] text-green-700 font-medium mt-1">
+                                                    ✓ Authorized hub ({formData.areaName || 'Serviceable'}) · Expected in 3–4 Days
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                District
+                                            </label>
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                value={(formData.district || 'Nandurbar') + ' District, Maharashtra'}
+                                                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-600 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block font-semibold text-gray-700 mb-1">
+                                            Doorstep Address <span className="text-red-500">*</span>
+                                        </label>
+                                        <textarea
+                                            rows={2}
+                                            placeholder="Flat/House no., Building, Street, Landmark"
+                                            value={formData.address}
+                                            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                            className={`w-full px-3 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 resize-none ${
+                                                formErrors.address ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                            }`}
+                                        />
+                                        {formErrors.address && (
+                                            <p className="text-[11px] text-red-500 mt-1">{formErrors.address}</p>
+                                        )}
+                                    </div>
+
+                                    {/* Prescription Attachment */}
+                                    <div className={`p-3.5 rounded-xl border ${hasRxItem ? 'bg-amber-50/70 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <label className="block font-bold text-gray-800 mb-1">
+                                            Doctor's Prescription {hasRxItem ? <span className="text-red-600">* (Required for Rx Medicines)</span> : <span className="text-gray-400 font-normal">(Optional)</span>}
+                                        </label>
+                                        <p className="text-[11px] text-gray-500 mb-2">
+                                            Take a photo from your mobile phone camera or attach PDF.
+                                        </p>
+                                        <input
+                                            ref={rxFileInputRef}
+                                            type="file"
+                                            accept="image/*,.pdf"
+                                            onChange={(e) => setRxFile(e.target.files[0] || null)}
+                                            className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                                        />
+                                        {formErrors.rxFile && (
+                                            <p className="text-[11px] text-red-600 font-semibold mt-1 flex items-center gap-1">
+                                                <AlertCircle size={12} /> {formErrors.rxFile}
                                             </p>
                                         )}
                                     </div>
+                                </div>
+                            </div>
 
-                                    <div>
-                                        <label className="block font-semibold text-gray-700 mb-1">
-                                            District
-                                        </label>
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            value={(formData.district || 'Nandurbar') + ' District, Maharashtra'}
-                                            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-600 outline-none"
-                                        />
+                            {/* Right Column: Order Items Summary + Payment Method (5 cols) */}
+                            <div className="lg:col-span-5 space-y-4">
+                                {/* Card 1: Order Items Summary */}
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 space-y-3.5 text-xs">
+                                    <h3 className="font-bold text-gray-900 text-sm pb-2 border-b border-gray-100 flex items-center justify-between">
+                                        <span>Order Items Summary ({cart.length})</span>
+                                        <span className="text-[11px] text-gray-400 font-normal">Review Items</span>
+                                    </h3>
+                                    <div className="divide-y divide-gray-50 max-h-52 overflow-y-auto pr-1">
+                                        {cart.map((item) => (
+                                            <div key={item.id} className="py-2 flex justify-between items-center">
+                                                <div className="pr-2">
+                                                    <p className="font-bold text-gray-800 line-clamp-1">{item.name}</p>
+                                                    <p className="text-[10px] text-gray-400">Qty: {item.qty} × ₹{item.price}</p>
+                                                </div>
+                                                <span className="font-bold text-gray-900 shrink-0">₹{(item.price * item.qty).toFixed(2)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="border-t border-gray-100 pt-3 space-y-1.5 text-slate-600">
+                                        <div className="flex justify-between">
+                                            <span>Medicines Price:</span>
+                                            <span className="font-semibold text-slate-800">₹{subtotal.toFixed(2)}</span>
+                                        </div>
+                                        {couponApplied && (
+                                            <div className="flex justify-between text-emerald-700 font-semibold">
+                                                <span>Coupon Discount:</span>
+                                                <span>-₹{discountAmount.toFixed(2)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between">
+                                            <span>Home Delivery Fee:</span>
+                                            <span className="font-semibold text-slate-800">
+                                                {deliveryFee === 0 ? <span className="text-emerald-600 font-bold">FREE</span> : `₹${deliveryFee}`}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-sm font-bold text-slate-900 pt-2 border-t border-slate-100">
+                                            <span>Total Amount:</span>
+                                            <span className="text-blue-700 text-base">₹{finalPayable.toFixed(2)}</span>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div>
-                                    <label className="block font-semibold text-gray-700 mb-1">
-                                        Doorstep Address <span className="text-red-500">*</span>
-                                    </label>
-                                    <textarea
-                                        rows={2}
-                                        placeholder="Flat/House no., Street, Area, Landmark"
-                                        value={formData.address}
-                                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                        className={`w-full px-3 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 resize-none ${
-                                            formErrors.address ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
-                                        }`}
-                                    />
-                                    {formErrors.address && (
-                                        <p className="text-[11px] text-red-500 mt-1">{formErrors.address}</p>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <label className="block font-semibold text-gray-700 mb-1">
-                                        PIN Code
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. 411045"
-                                        value={formData.pincode}
-                                        onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500"
-                                    />
-                                </div>
-
-                                {/* Prescription Attachment */}
-                                <div className={`p-3 rounded-xl border ${hasRxItem ? 'bg-amber-50/70 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
-                                    <label className="block font-bold text-gray-800 mb-1">
-                                        Attach Doctor's Prescription {hasRxItem ? <span className="text-red-600">* (Required)</span> : <span className="text-gray-400 font-normal">(Optional)</span>}
-                                    </label>
-                                    <input
-                                        ref={rxFileInputRef}
-                                        type="file"
-                                        accept="image/*,.pdf"
-                                        onChange={(e) => setRxFile(e.target.files[0] || null)}
-                                        className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
-                                    />
-                                    {formErrors.rxFile && (
-                                        <p className="text-[11px] text-red-600 font-semibold mt-1 flex items-center gap-1">
-                                            <AlertCircle size={12} /> {formErrors.rxFile}
-                                        </p>
-                                    )}
-                                </div>
-
-                                {/* Payment Method Selector */}
-                                <div>
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <label className="block font-semibold text-gray-700">
-                                            Select Payment Method <span className="text-red-500">*</span>
+                                {/* Card 2: Select Payment Method & Place Order (Directly Downside) */}
+                                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 space-y-3.5 text-xs">
+                                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                                        <label className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
+                                            <CreditCard size={15} className="text-blue-600" />
+                                            <span>Select Payment Method</span>
                                         </label>
-                                        <span className="text-[10px] text-gray-400 font-medium">100% Secure Checkout</span>
+                                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                            100% Secure
+                                        </span>
                                     </div>
 
                                     <div className="space-y-2">
@@ -990,7 +1093,7 @@ export default function CartPage() {
                                                 </div>
                                                 <div>
                                                     <p className="font-bold text-gray-900 text-xs">Cash on Delivery (COD)</p>
-                                                    <p className="text-[11px] text-gray-500">Pay cash or scan courier UPI upon doorstep delivery</p>
+                                                    <p className="text-[11px] text-gray-500">Pay cash upon doorstep delivery</p>
                                                 </div>
                                             </div>
                                             <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -1016,13 +1119,13 @@ export default function CartPage() {
                                                     <QrCode size={16} />
                                                 </div>
                                                 <div>
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1.5">
                                                         <p className="font-bold text-gray-900 text-xs">Instant UPI Dynamic QR</p>
-                                                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200">
-                                                            Zero Gateway Fee
+                                                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 rounded">
+                                                            Zero Fee
                                                         </span>
                                                     </div>
-                                                    <p className="text-[11px] text-gray-500">Scan &amp; pay via Google Pay, PhonePe, Paytm, BHIM</p>
+                                                    <p className="text-[11px] text-gray-500">Scan via Google Pay, PhonePe, Paytm, BHIM</p>
                                                 </div>
                                             </div>
                                             <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -1048,13 +1151,13 @@ export default function CartPage() {
                                                     <CreditCard size={16} />
                                                 </div>
                                                 <div>
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1.5">
                                                         <p className="font-bold text-gray-900 text-xs">Cashfree Online Gateway</p>
-                                                        <span className="bg-blue-100 text-blue-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-blue-200">
-                                                            Cards · Netbanking · UPI
+                                                        <span className="bg-blue-100 text-blue-800 text-[9px] font-bold px-1.5 rounded">
+                                                            Cards / Netbanking
                                                         </span>
                                                     </div>
-                                                    <p className="text-[11px] text-gray-500">Instant online settlement (Test sandbox active / live ready)</p>
+                                                    <p className="text-[11px] text-gray-500">Cards, Netbanking &amp; UPI online settlement</p>
                                                 </div>
                                             </div>
                                             <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -1064,60 +1167,34 @@ export default function CartPage() {
                                             </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                <button
-                                    type="submit"
-                                    disabled={isSubmitting}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3.5 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 mt-4 text-sm"
-                                >
-                                    {isSubmitting ? (
-                                        <>
-                                            <Loader2 size={16} className="animate-spin" />
-                                            <span>Placing Order...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <ShieldCheck size={16} />
-                                            <span>Confirm &amp; Place Order (₹{finalPayable.toFixed(2)})</span>
-                                        </>
-                                    )}
-                                </button>
-                            </form>
-                        </div>
+                                    {/* Confirm & Place Order Button */}
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmitting}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3.5 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 mt-4 text-sm cursor-pointer active:scale-98"
+                                    >
+                                        {isSubmitting ? (
+                                            <>
+                                                <Loader2 size={16} className="animate-spin" />
+                                                <span>Placing Order...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <ShieldCheck size={16} />
+                                                <span>Confirm &amp; Place Order (₹{finalPayable.toFixed(2)})</span>
+                                            </>
+                                        )}
+                                    </button>
 
-                        {/* Order Summary Column */}
-                        <div className="lg:col-span-5 bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4 text-xs">
-                            <h3 className="font-bold text-gray-800 text-sm pb-2 border-b border-gray-100">
-                                Order Items Summary ({cart.length})
-                            </h3>
-                            <div className="divide-y divide-gray-50 max-h-60 overflow-y-auto">
-                                {cart.map((item) => (
-                                    <div key={item.id} className="py-2 flex justify-between items-center">
-                                        <div>
-                                            <p className="font-bold text-gray-800">{item.name}</p>
-                                            <p className="text-[10px] text-gray-400">Qty: {item.qty} × ₹{item.price}</p>
-                                        </div>
-                                        <span className="font-bold text-gray-900">₹{(item.price * item.qty).toFixed(2)}</span>
+                                    <div className="pt-2 text-center text-[11px] text-gray-400 flex items-center justify-center gap-1">
+                                        <ShieldCheck size={12} className="text-emerald-600" />
+                                        <span>256-bit encrypted secure checkout · Dhruv Pharma</span>
                                     </div>
-                                ))}
-                            </div>
-                            <div className="border-t border-gray-100 pt-3 space-y-1.5">
-                                <div className="flex justify-between text-gray-500">
-                                    <span>Subtotal:</span>
-                                    <span>₹{subtotal.toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between text-gray-500">
-                                    <span>Delivery:</span>
-                                    <span>{deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}</span>
-                                </div>
-                                <div className="flex justify-between text-sm font-bold text-gray-900 pt-2 border-t border-gray-50">
-                                    <span>Total Amount:</span>
-                                    <span className="text-blue-700 text-base">₹{finalPayable.toFixed(2)}</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </form>
                 )}
 
                 {/* ── Toast Notification ── */}

@@ -114,10 +114,14 @@ const MedicineCard = memo(function MedicineCard({ medicine }) {
                     )}
                 </div>
 
-                <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-10">
-                    {requiresRx && (
-                        <span className="bg-red-50 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-red-200">
-                            Rx
+                <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
+                    {requiresRx ? (
+                        <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-rose-200 shadow-2xs" title="Doctor's prescription paper needed to order this medicine">
+                            Rx Needed
+                        </span>
+                    ) : (
+                        <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs" title="No prescription paper required (Direct buy)">
+                            Direct Buy
                         </span>
                     )}
                     <button
@@ -260,10 +264,16 @@ export default function MedicineStorePage() {
 
     // Fetch live published medicines from backend
     useEffect(() => {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 6000)
+
         const fetchMedicines = async () => {
             setIsLoading(true)
             try {
-                const res = await fetch('http://localhost:8000/api/medicines')
+                const res = await fetch('http://localhost:8000/api/medicines', {
+                    signal: controller.signal,
+                })
+                clearTimeout(timeoutId)
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data) && data.length > 0) {
@@ -273,14 +283,20 @@ export default function MedicineStorePage() {
                 }
                 setMedicines(FALLBACK_MEDICINES)
             } catch (err) {
-                console.warn('Backend unavailable, using fallback medicines:', err)
+                console.warn('Backend unavailable or timed out, using fallback medicines:', err)
                 setMedicines(FALLBACK_MEDICINES)
             } finally {
+                clearTimeout(timeoutId)
                 setIsLoading(false)
             }
         }
 
         fetchMedicines()
+
+        return () => {
+            controller.abort()
+            clearTimeout(timeoutId)
+        }
     }, [])
 
     /* Filtered + sorted list */
@@ -370,7 +386,7 @@ export default function MedicineStorePage() {
                             </span>
                         </div>
                         <p className="text-gray-500 text-xs sm:text-sm mt-0.5">
-                            {filteredMedicines.length} verified medicines · Delivery in 3–4 Days across Maharashtra
+                            Genuine verified medicines · Doorstep delivery across Nandurbar &amp; nearby areas
                         </p>
                     </div>
 
@@ -479,9 +495,9 @@ export default function MedicineStorePage() {
                                     Prescription Requirement
                                 </p>
                                 {[
-                                    { value: 'all', label: 'All Formulations' },
-                                    { value: 'otc', label: 'OTC (Over-The-Counter)' },
-                                    { value: 'rx',  label: 'Prescription Required (Rx)' },
+                                    { value: 'all', label: 'All Medicines' },
+                                    { value: 'otc', label: 'Direct Buy (No Doctor Paper Needed)' },
+                                    { value: 'rx',  label: 'Prescription Required (Doctor Paper Needed)' },
                                 ].map((opt) => (
                                     <label key={opt.value} className="flex items-center gap-2 text-xs text-gray-600 py-1.5 cursor-pointer hover:text-gray-900">
                                         <input
@@ -572,26 +588,17 @@ export default function MedicineStorePage() {
                                     ))}
                                 </div>
 
-                                {/* Load More Pagination Controls */}
+                                {/* Load More Button */}
                                 {filteredMedicines.length > visibleCount && (
-                                    <div className="mt-8 pt-4 border-t border-gray-100 flex flex-col items-center justify-center gap-3">
-                                        <p className="text-xs text-gray-500 font-medium">
-                                            Showing <span className="font-bold text-gray-800">{visibleMedicines.length}</span> of{' '}
-                                            <span className="font-bold text-gray-800">{filteredMedicines.length}</span> medicines
-                                        </p>
-                                        <div className="w-full max-w-xs bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                                            <div
-                                                className="bg-blue-600 h-full rounded-full transition-all duration-300"
-                                                style={{ width: `${(visibleMedicines.length / filteredMedicines.length) * 100}%` }}
-                                            />
-                                        </div>
+                                    <div className="mt-8 pt-4 flex justify-center">
                                         <button
                                             type="button"
                                             onClick={() => setVisibleCount((prev) => Math.min(prev + 24, filteredMedicines.length))}
-                                            className="mt-1 bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 hover:border-blue-400 font-bold text-xs sm:text-sm px-6 py-2.5 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                                            className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-300 hover:border-blue-500 font-bold text-sm px-8 py-3 rounded-2xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
                                         >
                                             <Sparkles size={14} className="text-blue-500" />
-                                            <span>Load Next 24 Medicines ({filteredMedicines.length - visibleMedicines.length} remaining)</span>
+                                            <span>Load More Medicines</span>
+                                            <ChevronDown size={14} />
                                         </button>
                                     </div>
                                 )}

@@ -64,6 +64,7 @@ class MedicineModel(Base):
     requires_prescription = Column(Boolean, default=False)
     image_url = Column(String(500), nullable=True, default="")
     is_published = Column(Boolean, default=False, index=True)  # False = Staged/Draft, True = Live Store
+    is_visible = Column(Boolean, default=True, index=True)  # Free will of store owner to showcase/hide in store
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -92,6 +93,8 @@ class MedicineModel(Base):
             "imageUrl": self.image_url or "",
             "image_url": self.image_url or "",
             "isPublished": self.is_published,
+            "isVisible": self.is_visible if self.is_visible is not None else True,
+            "is_visible": self.is_visible if self.is_visible is not None else True,
             "inStock": self.stock_quantity > 0,
             "discountPct": discount_pct,
             "rating": 4.7,
@@ -123,6 +126,7 @@ class OrderModel(Base):
     status = Column(String(50), default="pending", index=True)  # pending, confirmed, dispatched, delivered, cancelled
     expected_delivery = Column(String(150), nullable=True, default="Expected in 3–4 Days")
     delivery_agent = Column(String(100), nullable=True, default="Sanjay Kumar (Dhruv Express)")
+    stock_deducted = Column(Boolean, default=False)
     notes = Column(Text, nullable=True, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -160,6 +164,8 @@ class OrderModel(Base):
             "type": "prescription" if bool(self.prescription_file) else "direct",
             "agent": self.delivery_agent or "—",
             "deliveryAgent": self.delivery_agent or "—",
+            "stockDeducted": bool(self.stock_deducted),
+            "stock_deducted": bool(self.stock_deducted),
             "notes": self.notes or "",
             "date": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
             "createdAt": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
@@ -213,6 +219,7 @@ class CouponModel(Base):
     max_uses_total = Column(Integer, nullable=True, default=None)  # None = Unlimited, 1 = 1-time global use
     max_uses_per_user = Column(Integer, default=1)  # 1 = 1-time per customer, 0/None = Unlimited
     used_by = Column(Text, default="[]")  # JSON list of user identifiers (phone, email, uid)
+    show_in_cart = Column(Boolean, default=False)  # Owner controls whether coupon is shown in customer cart
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -241,6 +248,8 @@ class CouponModel(Base):
             "maxUsesTotal": self.max_uses_total,
             "max_uses_per_user": self.max_uses_per_user,
             "maxUsesPerUser": self.max_uses_per_user,
+            "show_in_cart": bool(self.show_in_cart) if self.show_in_cart is not None else False,
+            "showInCart": bool(self.show_in_cart) if self.show_in_cart is not None else False,
             "usedByCount": len(used_list),
             "createdAt": self.created_at.strftime("%d %b %Y") if self.created_at else "",
         }
@@ -311,11 +320,17 @@ def init_db():
             if cols and "user_id" not in cols:
                 cursor.execute("ALTER TABLE orders ADD COLUMN user_id VARCHAR(100) DEFAULT ''")
                 conn.connection.commit()
+            if cols and "stock_deducted" not in cols:
+                cursor.execute("ALTER TABLE orders ADD COLUMN stock_deducted BOOLEAN DEFAULT 0")
+                conn.connection.commit()
 
             cursor.execute("PRAGMA table_info(medicines)")
             med_cols = [col[1] for col in cursor.fetchall()]
             if med_cols and "image_url" not in med_cols:
                 cursor.execute("ALTER TABLE medicines ADD COLUMN image_url VARCHAR(500) DEFAULT ''")
+                conn.connection.commit()
+            if med_cols and "is_visible" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN is_visible BOOLEAN DEFAULT 1")
                 conn.connection.commit()
 
             cursor.execute("PRAGMA table_info(coupons)")
@@ -329,6 +344,9 @@ def init_db():
                     conn.connection.commit()
                 if "used_by" not in coupon_cols:
                     cursor.execute("ALTER TABLE coupons ADD COLUMN used_by TEXT DEFAULT '[]'")
+                    conn.connection.commit()
+                if "show_in_cart" not in coupon_cols:
+                    cursor.execute("ALTER TABLE coupons ADD COLUMN show_in_cart BOOLEAN DEFAULT 0")
                     conn.connection.commit()
         except Exception as e:
             print("Database migration notice:", e)

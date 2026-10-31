@@ -28,18 +28,26 @@ import {
     ShoppingBag,
     Loader2,
     Printer,
+    Copy,
+    MessageSquare,
 } from 'lucide-react'
 import OrderInvoiceModal from '../../components/OrderInvoiceModal'
 
 const STATUS_CONFIG = {
-    pending:   { label: 'Pending Verification', style: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
-    confirmed: { label: 'Confirmed / Packed',   style: 'bg-purple-100 text-purple-800 border-purple-200', icon: CheckCircle },
-    dispatched:{ label: 'Dispatched',           style: 'bg-orange-100 text-orange-800 border-orange-200', icon: Truck },
-    delivered: { label: 'Delivered',            style: 'bg-green-100 text-green-800 border-green-200',    icon: CheckCircle },
-    cancelled: { label: 'Cancelled',            style: 'bg-red-100 text-red-800 border-red-200',          icon: X },
+    pending:   { label: 'New Order',       style: 'bg-amber-100 text-amber-900 border-amber-200', icon: Clock },
+    confirmed: { label: 'Packed & Ready',  style: 'bg-blue-100 text-blue-900 border-blue-200',   icon: CheckCircle },
+    dispatched:{ label: 'Out for Delivery',style: 'bg-purple-100 text-purple-900 border-purple-200', icon: Truck },
+    delivered: { label: 'Delivered',       style: 'bg-emerald-100 text-emerald-900 border-emerald-200', icon: CheckCircle },
+    cancelled: { label: 'Cancelled',       style: 'bg-rose-100 text-rose-900 border-rose-200', icon: X },
 }
 
-const ALL_STATUSES = ['all', 'pending', 'confirmed', 'dispatched', 'delivered']
+const ALL_STATUSES = [
+    { key: 'all',        label: 'All Orders' },
+    { key: 'pending',    label: 'New Orders' },
+    { key: 'confirmed',  label: 'Packed & Ready' },
+    { key: 'dispatched', label: 'Out for Delivery' },
+    { key: 'delivered',  label: 'Delivered' },
+]
 
 const DELIVERY_HUBS = [
     { name: 'All Hubs', pincode: 'all' },
@@ -101,6 +109,8 @@ export default function AdminOrders() {
     const [selectedOrderIds, setSelectedOrderIds] = useState([])
     const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState(null)
     const [isBulkUpdating, setIsBulkUpdating] = useState(false)
+    const [stockAlertMessage, setStockAlertMessage] = useState('')
+    const [copiedCallbackPhone, setCopiedCallbackPhone] = useState(null)
 
     // ── Callbacks Queue & Phone Orders States ──
     const [callbacks, setCallbacks] = useState([])
@@ -235,7 +245,28 @@ export default function AdminOrders() {
                         }
                     }
 
-                    // 5. Order Deleted
+                    // 5. Real-Time Order Cancelled
+                    if (parsed.type === 'order_cancelled' && parsed.order) {
+                        const cancelled = parsed.order
+                        setOrders((prev) =>
+                            prev.map((o) => (o.id === cancelled.id || o.orderId === cancelled.id ? { ...o, status: 'cancelled' } : o))
+                        )
+                        if (selected && (selected.id === cancelled.id || selected.orderId === cancelled.id)) {
+                            setSelected((prev) => ({ ...prev, status: 'cancelled' }))
+                        }
+                        if (soundEnabled) playChime()
+                        const byWhom = parsed.cancelledBy === 'customer' ? 'Customer' : 'Store Admin'
+                        setStockAlertMessage(`⚠️ Order #${cancelled.orderId || cancelled.id} was CANCELLED by ${byWhom}. Notification email & WhatsApp delivered.`)
+                        setTimeout(() => setStockAlertMessage(''), 10000)
+                    }
+
+                    // 6. Real-Time Stock Updated
+                    if (parsed.type === 'stock_updated' && parsed.message) {
+                        setStockAlertMessage(parsed.message)
+                        setTimeout(() => setStockAlertMessage(''), 8000)
+                    }
+
+                    // 7. Order Deleted
                     if (parsed.type === 'order_deleted' && parsed.orderId) {
                         setOrders((prev) =>
                             prev.filter((o) => o.id !== parsed.orderId && o.orderId !== parsed.orderId)
@@ -268,11 +299,24 @@ export default function AdminOrders() {
                 setSelected((prev) => ({ ...prev, status: newStatus }))
             }
 
-            await fetch(`http://localhost:8000/api/orders/${orderId}/status`, {
+            const res = await fetch(`http://localhost:8000/api/orders/${orderId}/status`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: newStatus }),
             })
+            const data = await res.json()
+            if (res.ok) {
+                if (data.stockMessage) {
+                    setStockAlertMessage(`📦 Order #${orderId}: ${data.stockMessage}`)
+                    setTimeout(() => setStockAlertMessage(''), 8000)
+                } else if (newStatus === 'cancelled') {
+                    setStockAlertMessage(`⚠️ Order #${orderId} has been cancelled. Confirmation sent via WhatsApp & Email.`)
+                    setTimeout(() => setStockAlertMessage(''), 8000)
+                } else if (data.message) {
+                    setStockAlertMessage(data.message)
+                    setTimeout(() => setStockAlertMessage(''), 6000)
+                }
+            }
         } catch (err) {
             console.error('Status transition error:', err)
         } finally {
@@ -343,9 +387,10 @@ export default function AdminOrders() {
                 setOrders((prev) =>
                     prev.map((o) => (selectedOrderIds.includes(o.id || o.orderId) ? { ...o, status: newStatus } : o))
                 )
-                const count = data.updated_count || selectedOrderIds.length
+                const count = data.updatedCount || data.updated_count || selectedOrderIds.length
                 setSelectedOrderIds([])
-                alert(`Successfully updated ${count} orders to "${newStatus}".`)
+                setStockAlertMessage(data.message || `Successfully updated ${count} orders to "${newStatus}".`)
+                setTimeout(() => setStockAlertMessage(''), 8000)
             } else {
                 alert(data.detail || 'Failed to update orders.')
             }
@@ -354,6 +399,24 @@ export default function AdminOrders() {
             alert('Network error while performing bulk update.')
         } finally {
             setIsBulkUpdating(false)
+        }
+    }
+
+    // Delete Callback Request Handler
+    const handleDeleteCallback = async (callbackId) => {
+        if (!window.confirm('Delete this customer callback request? This will permanently remove it from the queue.')) {
+            return
+        }
+        setCallbacks((prev) => prev.filter((c) => c.id !== callbackId))
+        try {
+            const res = await fetch(`http://localhost:8000/api/callbacks/${callbackId}`, {
+                method: 'DELETE',
+            })
+            if (!res.ok) {
+                console.error('Failed to delete callback on server.')
+            }
+        } catch (err) {
+            console.error('Delete callback error:', err)
         }
     }
 
@@ -556,18 +619,39 @@ export default function AdminOrders() {
                     </div>
                 )}
 
+                {/* ── Real-Time Stock & Cancellation Alert Banner ── */}
+                {stockAlertMessage && (
+                    <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex items-center justify-between animate-in slide-in-from-top-4 duration-300 border border-slate-700">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center shrink-0">
+                                <Package size={20} />
+                            </div>
+                            <div>
+                                <p className="font-bold text-sm text-emerald-400">Inventory &amp; Order Notification</p>
+                                <p className="text-xs text-slate-200 mt-0.5">{stockAlertMessage}</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setStockAlertMessage('')}
+                            className="text-slate-400 hover:text-white p-1"
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+                )}
+
                 {/* ── Header ── */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-xl font-bold text-gray-900">Orders Management</h1>
-                            <span className="flex items-center gap-1 bg-green-100 text-green-800 text-[11px] font-bold px-2 py-0.5 rounded-full">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                Real-Time Feed Active
+                        <div className="flex items-center gap-2.5">
+                            <h1 className="text-xl font-bold text-slate-900">Customer Orders</h1>
+                            <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                Store Connected
                             </span>
                         </div>
-                        <p className="text-gray-500 text-sm mt-0.5">
-                            {orders.length} total orders · {pendingOrdersCount} pending · ₹{totalRevenue.toFixed(2)} collected
+                        <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+                            {orders.length} total orders · {pendingOrdersCount} waiting for dispatch · ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })} money collected
                         </p>
                     </div>
 
@@ -576,12 +660,12 @@ export default function AdminOrders() {
                         <button
                             type="button"
                             onClick={() => setCallbacksModalOpen(true)}
-                            className="relative bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="relative bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                         >
-                            <PhoneCall size={14} className="text-blue-600" />
-                            <span>Callbacks Queue</span>
+                            <PhoneCall size={14} className="text-emerald-700" />
+                            <span>Customer Callbacks</span>
                             {pendingCallbacksCount > 0 && (
-                                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                                <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
                                     {pendingCallbacksCount}
                                 </span>
                             )}
@@ -591,21 +675,21 @@ export default function AdminOrders() {
                         <button
                             type="button"
                             onClick={() => handleOpenPhoneOrder()}
-                            className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                         >
                             <Plus size={14} />
-                            <span>+ Take Phone Order</span>
+                            <span>+ New Phone Order</span>
                         </button>
 
                         {/* Audio Toggle */}
                         <button
                             onClick={() => setSoundEnabled(!soundEnabled)}
-                            className={`p-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                            className={`p-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                                 soundEnabled
-                                    ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                    : 'bg-white border-gray-200 text-gray-400'
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                    : 'bg-white border-slate-200 text-slate-400'
                             }`}
-                            title={soundEnabled ? 'Audio Chime Enabled' : 'Audio Chime Muted'}
+                            title={soundEnabled ? 'Order notification chime enabled' : 'Order notification chime muted'}
                         >
                             {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
                             <span className="hidden sm:inline">{soundEnabled ? 'Chime ON' : 'Muted'}</span>
@@ -617,10 +701,10 @@ export default function AdminOrders() {
                                 fetchOrders()
                                 fetchCallbacks()
                             }}
-                            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                         >
                             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
-                            Refresh
+                            Refresh List
                         </button>
                     </div>
                 </div>
@@ -628,47 +712,57 @@ export default function AdminOrders() {
                 {/* ── Search + Filter ── */}
                 <div className="space-y-2.5">
                     <div className="flex flex-col sm:flex-row gap-3">
-                        <div className="flex-1 flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all shadow-2xs">
-                            <Search size={16} className="ml-4 text-gray-400 shrink-0" />
+                        <div className="flex-1 flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100 transition-all shadow-2xs">
+                            <Search size={16} className="ml-4 text-slate-400 shrink-0" />
                             <input
                                 type="text"
-                                placeholder="Search by patient name, phone, order ID, PIN code or district..."
+                                placeholder="Search by customer name, phone number, order ID, town, or PIN code..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 className="flex-1 px-3 py-2.5 text-xs outline-none bg-transparent"
                             />
                         </div>
                         <div className="flex gap-2 overflow-x-auto pb-1">
-                            {ALL_STATUSES.map((s) => (
-                                <button
-                                    key={s}
-                                    onClick={() => setFilter(s)}
-                                    className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-semibold capitalize border transition-colors ${
-                                        filter === s
-                                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                            : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
-                                    }`}
-                                >
-                                    {s === 'all' ? `All (${orders.length})` : s}
-                                </button>
-                            ))}
+                            {ALL_STATUSES.map((item) => {
+                                const count = item.key === 'all'
+                                    ? orders.length
+                                    : orders.filter((o) => o.status === item.key).length
+                                return (
+                                    <button
+                                        key={item.key}
+                                        onClick={() => setFilter(item.key)}
+                                        className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                            filter === item.key
+                                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                                : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
+                                        }`}
+                                    >
+                                        <span>{item.label}</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                            filter === item.key ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-100 text-slate-600'
+                                        }`}>
+                                            {count}
+                                        </span>
+                                    </button>
+                                )
+                            })}
                         </div>
                     </div>
 
                     {/* ── Delivery Hub Selector Bar (Real-Time Serviceable Areas) ── */}
                     <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs pt-1">
-                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
-                            <MapPin size={12} className="text-blue-600" />
-                            Hub Dispatch:
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
+                            <MapPin size={12} className="text-emerald-700" />
+                            Town / Hub:
                         </span>
                         {DELIVERY_HUBS.map((hub) => (
                             <button
                                 key={hub.pincode}
                                 onClick={() => setAreaFilter(hub.pincode)}
-                                className={`shrink-0 px-2.5 py-1 rounded-lg font-medium transition-all text-xs border ${
+                                className={`shrink-0 px-2.5 py-1 rounded-lg font-bold transition-all text-xs border cursor-pointer ${
                                     areaFilter === hub.pincode
-                                        ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold shadow-2xs'
-                                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                                 }`}
                             >
                                 {hub.name} {hub.pincode !== 'all' && <span className="opacity-70 text-[10px]">({hub.pincode})</span>}
@@ -679,12 +773,12 @@ export default function AdminOrders() {
 
                 {/* ── Bulk Actions Toolbar ── */}
                 {selectedOrderIds.length > 0 && (
-                    <div className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white px-5 py-3 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg border border-blue-600 animate-in fade-in slide-in-from-top-2">
+                    <div className="bg-slate-900 text-white px-5 py-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg border border-slate-800 animate-in fade-in slide-in-from-top-2">
                         <div className="flex items-center gap-3">
-                            <span className="font-bold text-xs bg-white text-blue-900 px-3 py-1 rounded-xl shadow-xs">
+                            <span className="font-bold text-xs bg-emerald-500 text-slate-900 px-3 py-1 rounded-xl shadow-xs">
                                 {selectedOrderIds.length} Order{selectedOrderIds.length > 1 ? 's' : ''} Selected
                             </span>
-                            <span className="text-xs text-blue-100 hidden md:inline">
+                            <span className="text-xs text-slate-300 hidden md:inline">
                                 Update all selected orders at once:
                             </span>
                         </div>
@@ -692,34 +786,34 @@ export default function AdminOrders() {
                             <button
                                 disabled={isBulkUpdating}
                                 onClick={() => handleBulkUpdateStatus('confirmed')}
-                                className="bg-purple-600/90 hover:bg-purple-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-purple-400/40 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
                             >
-                                <Check size={12} /> Confirm
+                                <Check size={12} /> Mark Packed
                             </button>
                             <button
                                 disabled={isBulkUpdating}
                                 onClick={() => handleBulkUpdateStatus('dispatched')}
-                                className="bg-orange-600/90 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-orange-400/40 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
                             >
-                                <Truck size={12} /> Dispatch
+                                <Truck size={12} /> Out for Delivery
                             </button>
                             <button
                                 disabled={isBulkUpdating}
                                 onClick={() => handleBulkUpdateStatus('delivered')}
                                 className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
                             >
-                                <CheckCircle size={12} /> Deliver
+                                <CheckCircle size={12} /> Mark Delivered
                             </button>
                             <button
                                 disabled={isBulkUpdating}
                                 onClick={() => handleBulkUpdateStatus('cancelled')}
-                                className="bg-red-600/90 hover:bg-red-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-red-400/40 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                className="bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
                             >
-                                <X size={12} /> Cancel
+                                <X size={12} /> Cancel Orders
                             </button>
                             <button
                                 onClick={() => setSelectedOrderIds([])}
-                                className="text-xs text-blue-200 hover:text-white underline ml-2 cursor-pointer font-medium"
+                                className="text-xs text-slate-400 hover:text-white underline ml-2 cursor-pointer font-medium"
                             >
                                 Clear Selection
                             </button>
@@ -767,16 +861,27 @@ export default function AdminOrders() {
                                                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                                                 />
                                             </td>
-                                            <td className="py-3.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap">
+                                            <td className="py-3.5 px-4 font-mono font-bold text-emerald-800 whitespace-nowrap">
                                                 {o.id || o.orderId}
                                             </td>
                                             <td className="py-3.5 px-4">
-                                                <p className="font-bold text-gray-900">{o.patient || o.customerName}</p>
-                                                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-0.5">
-                                                    <span>{o.phone}</span>
+                                                <p className="font-bold text-slate-900">{o.patient || o.customerName}</p>
+                                                <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                                                    {o.phone ? (
+                                                        <a
+                                                            href={`tel:${o.phone}`}
+                                                            className="hover:text-emerald-700 hover:underline inline-flex items-center gap-1 font-semibold text-slate-700"
+                                                            title="Click to call customer"
+                                                        >
+                                                            <Phone size={10} className="text-emerald-600" />
+                                                            <span>{o.phone}</span>
+                                                        </a>
+                                                    ) : (
+                                                        <span>No phone</span>
+                                                    )}
                                                     <span>·</span>
-                                                    <span className="inline-flex items-center gap-0.5 text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded">
-                                                        <MapPin size={10} />
+                                                    <span className="inline-flex items-center gap-0.5 text-slate-700 font-semibold bg-slate-100 px-1.5 py-0.2 rounded">
+                                                        <MapPin size={10} className="text-emerald-700" />
                                                         {o.district || 'Nandurbar'} {o.pincode ? `(${o.pincode})` : ''}
                                                     </span>
                                                 </div>
@@ -791,19 +896,19 @@ export default function AdminOrders() {
                                                             value={tempDeliveryTime}
                                                             onChange={(e) => setTempDeliveryTime(e.target.value)}
                                                             placeholder="e.g. Expected in 3–4 Days"
-                                                            className="px-2 py-1 border border-blue-400 rounded-lg text-xs outline-none bg-white w-48 font-medium"
+                                                            className="px-2 py-1 border border-emerald-400 rounded-lg text-xs outline-none bg-white w-48 font-medium"
                                                             autoFocus
                                                         />
                                                         <button
                                                             onClick={() => handleSaveDeliveryTime(o.id || o.orderId, tempDeliveryTime)}
-                                                            className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
+                                                            className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 cursor-pointer"
                                                             title="Save Delivery Time"
                                                         >
                                                             <Check size={12} />
                                                         </button>
                                                         <button
                                                             onClick={() => setEditingDeliveryTimeId(null)}
-                                                            className="p-1 bg-gray-200 text-gray-600 rounded hover:bg-gray-300"
+                                                            className="p-1 bg-slate-200 text-slate-600 rounded hover:bg-slate-300 cursor-pointer"
                                                             title="Cancel"
                                                         >
                                                             <X size={12} />
@@ -815,11 +920,11 @@ export default function AdminOrders() {
                                                              setEditingDeliveryTimeId(o.id || o.orderId)
                                                              setTempDeliveryTime(o.expectedDelivery || 'Expected in 3–4 Days')
                                                         }}
-                                                        className="group cursor-pointer flex items-center gap-1.5 text-gray-700 hover:text-blue-600"
+                                                        className="group cursor-pointer flex items-center gap-1.5 text-slate-700 hover:text-emerald-700"
                                                         title="Click to edit expected delivery time"
                                                     >
-                                                        <Truck size={13} className="text-gray-400 group-hover:text-blue-600 shrink-0" />
-                                                        <span className="font-medium underline decoration-dotted decoration-gray-300">
+                                                        <Truck size={13} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
+                                                        <span className="font-semibold underline decoration-dotted decoration-slate-300">
                                                             {o.expectedDelivery || 'Expected in 3–4 Days'}
                                                         </span>
                                                     </div>
@@ -827,36 +932,36 @@ export default function AdminOrders() {
                                             </td>
 
                                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                                                <p className="font-bold text-gray-900">₹{o.amount || o.totalAmount}</p>
-                                                <p className="text-[10px] text-gray-400">{o.paymentMethod}</p>
+                                                <p className="font-bold text-slate-900">₹{o.amount || o.totalAmount}</p>
+                                                <p className="text-[10px] text-slate-500 font-medium uppercase">{o.paymentMethod || 'COD'}</p>
                                             </td>
 
                                             <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border capitalize ${cfg.style}`}>
-                                                    <Icon size={11} /> {cfg.label}
+                                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${cfg.style}`}>
+                                                    <Icon size={12} /> {cfg.label}
                                                 </span>
                                             </td>
 
-                                            {/* Action Buttons: Inspect, Invoice & Delete */}
+                                            {/* Action Buttons: View, Bill & Delete */}
                                             <td className="py-3.5 px-4 text-center whitespace-nowrap">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                     <button
                                                         onClick={() => setSelected(o)}
-                                                        className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold px-2 py-1 rounded-lg transition-colors cursor-pointer"
-                                                        title="Inspect full order"
+                                                        className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                                                        title="View full order details"
                                                     >
-                                                        <Eye size={12} /> Inspect
+                                                        <Eye size={12} /> View
                                                     </button>
                                                     <button
                                                         onClick={() => setSelectedInvoiceOrder(o)}
-                                                        className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2 py-1 rounded-lg transition-colors cursor-pointer"
-                                                        title="View / Print Tax Invoice"
+                                                        className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                                                        title="Print GST Bill"
                                                     >
-                                                        <Printer size={12} /> Bill
+                                                        <Printer size={12} /> Print Bill
                                                     </button>
                                                     <button
                                                         onClick={() => handleDeleteOrder(o.id || o.orderId)}
-                                                        className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                                                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
                                                         title="Delete order"
                                                     >
                                                         <Trash2 size={13} />
@@ -1192,46 +1297,97 @@ export default function AdminOrders() {
                                             </div>
 
                                             {/* Action Buttons */}
-                                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
-                                                <div className="flex items-center gap-2">
-                                                    <a
-                                                        href={`tel:${cb.phone}`}
-                                                        className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-2xs"
-                                                    >
-                                                        <PhoneCall size={12} />
-                                                        <span>Call Now</span>
-                                                    </a>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenPhoneOrder(cb)}
-                                                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-2xs cursor-pointer"
-                                                    >
-                                                        <Plus size={12} />
-                                                        <span>Take Order for Caller</span>
-                                                    </button>
-                                                </div>
+                                            {(() => {
+                                                const cleanPhone = String(cb.phone || '').replace(/[^0-9+]/g, '')
+                                                const rawDigits = cleanPhone.replace(/\D/g, '')
+                                                const waNumber = rawDigits.length === 10 ? '91' + rawDigits : rawDigits
 
-                                                <div className="flex items-center gap-1.5 text-[11px]">
-                                                    {cb.status === 'pending' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleUpdateCallbackStatus(cb.id, 'called')}
-                                                            className="text-gray-500 hover:text-blue-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors"
-                                                        >
-                                                            Mark as Called
-                                                        </button>
-                                                    )}
-                                                    {cb.status !== 'cancelled' && cb.status !== 'converted' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleUpdateCallbackStatus(cb.id, 'cancelled')}
-                                                            className="text-gray-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                                                        >
-                                                            Dismiss
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
+                                                return (
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            {/* Direct Telephone Dial */}
+                                                            <a
+                                                                href={`tel:${cleanPhone}`}
+                                                                className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-2xs"
+                                                                title={`Dial ${cleanPhone}`}
+                                                            >
+                                                                <PhoneCall size={12} />
+                                                                <span>Call Now</span>
+                                                            </a>
+
+                                                            {/* Direct WhatsApp Chat */}
+                                                            {waNumber && (
+                                                                <a
+                                                                    href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Hello ${cb.customerName}, this is Dhruv Pharma Nandurbar regarding your callback request #${cb.requestId}. How may we help you?`)}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-2xs"
+                                                                    title="Open customer WhatsApp chat"
+                                                                >
+                                                                    <MessageSquare size={12} className="text-emerald-600" />
+                                                                    <span>WhatsApp</span>
+                                                                </a>
+                                                            )}
+
+                                                            {/* Copy Phone to Clipboard */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (cleanPhone) {
+                                                                        navigator.clipboard.writeText(cleanPhone)
+                                                                        setCopiedCallbackPhone(cb.id)
+                                                                        setTimeout(() => setCopiedCallbackPhone(null), 2500)
+                                                                    }
+                                                                }}
+                                                                className="inline-flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
+                                                                title="Copy customer phone number"
+                                                            >
+                                                                {copiedCallbackPhone === cb.id ? (
+                                                                    <>
+                                                                        <Check size={12} className="text-emerald-600" />
+                                                                        <span className="text-emerald-700 font-bold">Copied!</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <Copy size={12} />
+                                                                        <span>Copy</span>
+                                                                    </>
+                                                                )}
+                                                            </button>
+
+                                                            {/* Take Phone Order */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenPhoneOrder(cb)}
+                                                                className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-2xs cursor-pointer"
+                                                            >
+                                                                <Plus size={12} />
+                                                                <span>Take Order</span>
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5 text-[11px]">
+                                                            {cb.status === 'pending' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleUpdateCallbackStatus(cb.id, 'called')}
+                                                                    className="text-gray-500 hover:text-blue-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+                                                                >
+                                                                    Mark Called
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteCallback(cb.id)}
+                                                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                                                title="Delete callback request"
+                                                            >
+                                                                <Trash2 size={13} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })()}
                                         </div>
                                     ))
                                 )}

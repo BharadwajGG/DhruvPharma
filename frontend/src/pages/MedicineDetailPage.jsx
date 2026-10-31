@@ -14,6 +14,7 @@ import {
     Truck,
     RotateCcw,
     AlertCircle,
+    CheckCircle,
     Pill,
     ChevronRight,
     Plus,
@@ -187,9 +188,13 @@ export default function MedicineDetailPage() {
                                     {discount}% OFF
                                 </span>
                             )}
-                            {requiresRx && (
-                                <span className="absolute top-3 right-3 bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full border border-red-200 flex items-center gap-1 z-10">
-                                    <AlertCircle size={12} /> Rx Required
+                            {requiresRx ? (
+                                <span className="absolute top-3 right-3 bg-rose-50 text-rose-700 text-xs font-bold px-2.5 py-1 rounded-full border border-rose-200 flex items-center gap-1 z-10 shadow-2xs">
+                                    <AlertCircle size={12} /> Prescription Required
+                                </span>
+                            ) : (
+                                <span className="absolute top-3 right-3 bg-emerald-50 text-emerald-700 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1 z-10 shadow-2xs">
+                                    <CheckCircle size={12} /> Direct Buy (No Rx)
                                 </span>
                             )}
                         </div>

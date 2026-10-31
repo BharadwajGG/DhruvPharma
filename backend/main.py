@@ -1,4 +1,5 @@
 import os
+import sys
 import io
 import re
 import csv
@@ -8,6 +9,9 @@ import uuid
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
+
+# Ensure backend directory is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +27,8 @@ from notifications import (
     generate_clinical_info,
     generate_order_email_html,
     generate_whatsapp_message,
+    generate_cancellation_email_html,
+    generate_cancellation_whatsapp_message,
     send_order_email,
 )
 
@@ -303,19 +309,44 @@ async def place_order(
         next_num += 1
     order_id = f"DP-{next_num}"
 
-    # Decrement medicine stock in catalog
-    for item in parsed_items:
-        med_id = item.get("id")
-        qty = item.get("qty", 1)
-        if med_id:
-            med = db.query(MedicineModel).filter(MedicineModel.id == med_id).first()
-            if med and med.stock_quantity is not None:
-                med.stock_quantity = max(0, med.stock_quantity - qty)
-
     # Determine initial status
     initial_status = "pending"
-    if prescription_url:
-        initial_status = "pending"  # requires prescription verification
+
+    # Strictly check coupon code if submitted
+    if couponCode:
+        c = db.query(CouponModel).filter(CouponModel.code == couponCode.strip().upper()).first()
+        if c:
+            if not c.is_active:
+                raise HTTPException(status_code=400, detail="This discount coupon is inactive.")
+            if c.max_uses_total is not None and (c.usage_count or 0) >= c.max_uses_total:
+                raise HTTPException(status_code=400, detail="This coupon code has reached its maximum usage limit.")
+            
+            # Check user identifiers
+            identifiers = set()
+            for val in [phone, userId, email]:
+                if val and str(val).strip():
+                    clean_val = str(val).strip().lower()
+                    identifiers.add(clean_val)
+                    digits = "".join(filter(str.isdigit, clean_val))
+                    if len(digits) >= 10:
+                        identifiers.add(digits[-10:])
+
+            if c.max_uses_per_user and identifiers:
+                try:
+                    used_list = json.loads(c.used_by) if c.used_by else []
+                except Exception:
+                    used_list = []
+                user_times = 0
+                for used_item in used_list:
+                    used_str = str(used_item).strip().lower()
+                    used_digits = "".join(filter(str.isdigit, used_str))
+                    if used_str in identifiers or (len(used_digits) >= 10 and used_digits[-10:] in identifiers):
+                        user_times += 1
+                if user_times >= c.max_uses_per_user:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Coupon code '{c.code}' has already been used by this customer (limit: {c.max_uses_per_user} time{'s' if c.max_uses_per_user > 1 else ''})."
+                    )
 
     new_order = OrderModel(
         order_id=order_id,
@@ -337,6 +368,7 @@ async def place_order(
         status=initial_status,
         expected_delivery="Expected in 3–4 Days",
         delivery_agent="Sanjay Kumar (Dhruv Express)",
+        stock_deducted=False,
         notes=(notes or "").strip(),
         created_at=datetime.now(),
     )
@@ -349,14 +381,22 @@ async def place_order(
         c = db.query(CouponModel).filter(CouponModel.code == couponCode.strip().upper()).first()
         if c:
             c.usage_count = (c.usage_count or 0) + 1
-            user_ident = (phone or userId or email or "").strip().lower()
-            if user_ident:
-                try:
-                    used_list = json.loads(c.used_by) if c.used_by else []
-                except Exception:
-                    used_list = []
-                used_list.append(user_ident)
-                c.used_by = json.dumps(used_list)
+            try:
+                used_list = json.loads(c.used_by) if c.used_by else []
+            except Exception:
+                used_list = []
+            
+            # Record all customer identifiers so future checks instantly catch them
+            for val in [phone, userId, email]:
+                if val and str(val).strip():
+                    clean_val = str(val).strip().lower()
+                    if clean_val not in used_list:
+                        used_list.append(clean_val)
+                    digits = "".join(filter(str.isdigit, clean_val))
+                    if len(digits) >= 10 and digits[-10:] not in used_list:
+                        used_list.append(digits[-10:])
+            
+            c.used_by = json.dumps(used_list)
             # If total limit reached, auto-deactivate
             if c.max_uses_total is not None and c.usage_count >= c.max_uses_total:
                 c.is_active = False
@@ -393,12 +433,20 @@ def get_all_orders(
     """Returns list of orders for Admin hub or scoped strictly for a customer."""
     query = db.query(OrderModel).order_by(OrderModel.id.desc())
 
-    # Per-user isolation filter
+    # Per-user isolation filter (protects user privacy)
     target_uid = (user_id or userId or "").strip()
-    if target_uid:
+    target_email = (email or "").strip()
+    if target_uid and target_email:
+        query = query.filter(
+            or_(
+                OrderModel.user_id == target_uid,
+                OrderModel.customer_email.ilike(target_email),
+            )
+        )
+    elif target_uid:
         query = query.filter(OrderModel.user_id == target_uid)
-    elif email and email.strip():
-        query = query.filter(OrderModel.customer_email.ilike(email.strip()))
+    elif target_email:
+        query = query.filter(OrderModel.customer_email.ilike(target_email))
 
     if status and status != "all":
         query = query.filter(OrderModel.status == status.lower())
@@ -443,7 +491,7 @@ async def update_order_status(
     payload: OrderStatusUpdateRequest,
     db: Session = Depends(get_db),
 ):
-    """Updates order status, delivery agent, and expected delivery time; broadcasts real-time update."""
+    """Updates order status, delivery agent, and expected delivery time; manages stock; broadcasts real-time update."""
     order = (
         db.query(OrderModel)
         .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
@@ -452,12 +500,86 @@ async def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    status_message = f"Order {order_id} updated."
+    stock_updates = []
+
     if payload.status:
         valid_statuses = ["pending", "confirmed", "dispatched", "delivered", "cancelled"]
         status_lower = payload.status.lower()
         if status_lower not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status: {payload.status}")
+
+        old_status = (order.status or "").lower()
         order.status = status_lower
+
+        # ── Stock Management on Dispatch / Delivery ──
+        if status_lower in ["dispatched", "delivered"] and not order.stock_deducted:
+            try:
+                items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+                for it in items:
+                    m_id = it.get("id")
+                    qty = int(it.get("qty", 1) or 1)
+                    med = None
+                    if m_id:
+                        med = db.query(MedicineModel).filter(MedicineModel.id == m_id).first()
+                    if not med and it.get("name"):
+                        med = db.query(MedicineModel).filter(MedicineModel.name.ilike(it.get("name").strip())).first()
+
+                    if med and med.stock_quantity is not None:
+                        old_qty = med.stock_quantity
+                        new_qty = max(0, old_qty - qty)
+                        med.stock_quantity = new_qty
+                        stock_updates.append({
+                            "id": med.id,
+                            "name": med.name,
+                            "qty": qty,
+                            "oldStock": old_qty,
+                            "newStock": new_qty,
+                            "isLow": new_qty <= med.min_stock,
+                        })
+                order.stock_deducted = True
+            except Exception as e:
+                print("Error deducting stock on dispatch:", e)
+
+            if stock_updates:
+                stock_summary = ", ".join([f"{u['name']} -{u['qty']} (Remaining: {u['newStock']})" for u in stock_updates])
+                status_message = f"Order {order.order_id} marked as {status_lower.title()}. Stock deducted: {stock_summary}"
+                await broadcast_order_event("stock_updated", {"orderId": order.order_id, "updates": stock_updates})
+
+        # ── Stock Restoration & Notifications on Cancellation by Store ──
+        elif status_lower == "cancelled":
+            if order.stock_deducted:
+                try:
+                    items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+                    for it in items:
+                        m_id = it.get("id")
+                        qty = int(it.get("qty", 1) or 1)
+                        med = None
+                        if m_id:
+                            med = db.query(MedicineModel).filter(MedicineModel.id == m_id).first()
+                        if not med and it.get("name"):
+                            med = db.query(MedicineModel).filter(MedicineModel.name.ilike(it.get("name").strip())).first()
+                        if med and med.stock_quantity is not None:
+                            med.stock_quantity += qty
+                    order.stock_deducted = False
+                except Exception as e:
+                    print("Error restoring stock on cancellation:", e)
+
+            # Customer cancellation notifications (Email & WhatsApp)
+            order_dict = order.to_dict()
+            cancel_reason = "Order cancelled by store pharmacist / owner"
+            cancel_email = generate_cancellation_email_html(order_dict, cancelled_by="store", reason=cancel_reason)
+            cancel_wa = generate_cancellation_whatsapp_message(order_dict, cancelled_by="store", reason=cancel_reason)
+            send_order_email(order_dict, subject=f"Order #{order.order_id} Cancelled - Dhruv Pharma", html_content=cancel_email)
+
+            await broadcast_order_event("order_cancelled", {
+                "order": order_dict,
+                "orderId": order.order_id,
+                "cancelledBy": "store",
+                "reason": cancel_reason,
+                "whatsappText": cancel_wa,
+            })
+            status_message = f"Order {order.order_id} cancelled. Notification sent to customer via Email & WhatsApp."
 
     if payload.delivery_agent is not None:
         order.delivery_agent = payload.delivery_agent.strip()
@@ -475,8 +597,9 @@ async def update_order_status(
 
     return {
         "success": True,
-        "message": f"Order {order_id} updated",
+        "message": status_message,
         "order": order_dict,
+        "stockUpdates": stock_updates,
     }
 
 
@@ -509,7 +632,7 @@ async def cancel_customer_order(
     payload: Optional[OrderCancelRequest] = None,
     db: Session = Depends(get_db),
 ):
-    """Allows customers to cancel pending/confirmed orders, restores medicine stock, and broadcasts update."""
+    """Allows customers to cancel pending/confirmed orders, restores medicine stock, triggers notifications, and broadcasts update to Admin in real-time."""
     order = (
         db.query(OrderModel)
         .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
@@ -522,7 +645,7 @@ async def cancel_customer_order(
     if status_lower in ["dispatched", "delivered"]:
         raise HTTPException(
             status_code=400,
-            detail=f"This order is already {order.status} and cannot be cancelled online. Please contact our pharmacist support at +91 98765 43210.",
+            detail=f"This order is already {order.status} and cannot be cancelled online. Please contact our pharmacist support at +91 9503500725.",
         )
 
     if status_lower == "cancelled":
@@ -532,18 +655,23 @@ async def cancel_customer_order(
             "order": order.to_dict(),
         }
 
-    # Restore stock for each item in the order
-    try:
-        items = json.loads(order.items)
-        for item in items:
-            med_id = item.get("id")
-            qty = item.get("qty", 1)
-            if med_id:
-                med = db.query(MedicineModel).filter(MedicineModel.id == med_id).first()
+    # Restore stock if it was deducted
+    if order.stock_deducted:
+        try:
+            items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+            for it in items:
+                m_id = it.get("id")
+                qty = int(it.get("qty", 1) or 1)
+                med = None
+                if m_id:
+                    med = db.query(MedicineModel).filter(MedicineModel.id == m_id).first()
+                if not med and it.get("name"):
+                    med = db.query(MedicineModel).filter(MedicineModel.name.ilike(it.get("name").strip())).first()
                 if med and med.stock_quantity is not None:
                     med.stock_quantity += qty
-    except Exception as e:
-        print(f"Stock restore warning on order cancellation: {e}")
+            order.stock_deducted = False
+        except Exception as e:
+            print(f"Stock restore warning on order cancellation: {e}")
 
     order.status = "cancelled"
     cancel_note = (payload.reason if payload and payload.reason else "Cancelled by customer").strip()
@@ -556,12 +684,30 @@ async def cancel_customer_order(
     db.refresh(order)
 
     order_dict = order.to_dict()
+
+    # Generate customer notifications (Email & WhatsApp)
+    cancel_email = generate_cancellation_email_html(order_dict, cancelled_by="customer", reason=cancel_note)
+    cancel_wa = generate_cancellation_whatsapp_message(order_dict, cancelled_by="customer", reason=cancel_note)
+    send_order_email(order_dict, subject=f"Order #{order.order_id} Cancelled - Dhruv Pharma", html_content=cancel_email)
+
+    # Broadcast real-time SSE cancellation event to Admin Portal
+    await broadcast_order_event("order_cancelled", {
+        "order": order_dict,
+        "orderId": order.order_id,
+        "cancelledBy": "customer",
+        "customerName": order.customer_name,
+        "phone": order.customer_phone,
+        "amount": order.total_amount,
+        "reason": cancel_note,
+        "whatsappText": cancel_wa,
+    })
     await broadcast_order_event("status_update", order_dict)
 
     return {
         "success": True,
-        "message": f"Order #{order.order_id} has been cancelled successfully.",
+        "message": f"Order #{order.order_id} has been cancelled successfully. Confirmation sent via WhatsApp & Email.",
         "order": order_dict,
+        "whatsappText": cancel_wa,
     }
 
 
@@ -842,6 +988,21 @@ async def update_callback_status(
     return {"success": True, "callback": cb_dict}
 
 
+@app.delete("/api/callbacks/{callback_id}")
+async def delete_callback(callback_id: int, db: Session = Depends(get_db)):
+    """Allows owner to delete callback requests so requests do not stack up."""
+    cb = db.query(CallbackRequestModel).filter(CallbackRequestModel.id == callback_id).first()
+    if not cb:
+        raise HTTPException(status_code=404, detail="Callback request not found")
+
+    req_id = f"CB-{cb.id:04d}"
+    db.delete(cb)
+    db.commit()
+
+    await broadcast_order_event("callback_deleted", {"callbackId": callback_id, "requestId": req_id})
+    return {"success": True, "message": f"Callback request {req_id} deleted successfully."}
+
+
 class AdminManualOrderItem(BaseModel):
     id: Optional[int] = None
     name: str
@@ -1056,6 +1217,25 @@ def update_prescription_status(
     }
 
 
+@app.delete("/api/prescriptions/{rx_id}")
+async def delete_prescription(rx_id: str, db: Session = Depends(get_db)):
+    """Allows store owner to delete prescription requests so requests do not stack up."""
+    prescription = (
+        db.query(PrescriptionModel)
+        .filter((PrescriptionModel.rx_id == rx_id) | (PrescriptionModel.id == rx_id))
+        .first()
+    )
+    if not prescription:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+
+    deleted_id = prescription.rx_id
+    db.delete(prescription)
+    db.commit()
+
+    await broadcast_order_event("prescription_deleted", {"rxId": deleted_id, "id": deleted_id})
+    return {"success": True, "message": f"Prescription request {deleted_id} deleted successfully."}
+
+
 # ==============================================================================
 # 3. INVENTORY AUTO-CATEGORIZATION & STAGING WORKSPACE
 # ==============================================================================
@@ -1093,14 +1273,17 @@ def download_sample_csv():
 
 
 @app.post("/api/inventory/upload")
-async def upload_distributor_inventory(
+def upload_distributor_inventory(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     if not file.filename.lower().endswith((".csv", ".txt")):
         raise HTTPException(status_code=400, detail="Only CSV files (.csv) are currently supported.")
 
-    content_bytes = await file.read()
+    try:
+        content_bytes = file.file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to read the uploaded CSV file.")
 
     text_content = None
     for enc in ["utf-8-sig", "utf-8", "cp1252", "latin-1"]:
@@ -1139,6 +1322,9 @@ async def upload_distributor_inventory(
             status_code=400,
             detail="Could not find medicine Name column in CSV. Found headers: " + ", ".join(headers),
         )
+
+    # Pre-index existing catalog in memory to make bulk ingestion instant (< 0.5s)
+    existing_map = {m.item_code: m for m in db.query(MedicineModel).all() if m.item_code}
 
     category_counts: Dict[str, int] = {}
     total_parsed = 0
@@ -1210,7 +1396,7 @@ async def upload_distributor_inventory(
         )
         pack_shot_url = raw_image_url or resolve_brand_pack_shot(raw_name, raw_company)
 
-        existing = db.query(MedicineModel).filter(MedicineModel.item_code == raw_code).first()
+        existing = existing_map.get(raw_code)
 
         if existing:
             existing.name = raw_name
@@ -1222,9 +1408,9 @@ async def upload_distributor_inventory(
             existing.selling_price = selling_price
             existing.stock_quantity = raw_stock
             existing.requires_prescription = requires_rx
-            if pack_shot_url:
+            if pack_shot_url and not existing.image_url:
                 existing.image_url = pack_shot_url
-            existing.is_published = False
+            # Preserve publication status: do not accidentally hide already-live medicines!
             updated_count += 1
         else:
             new_item = MedicineModel(
@@ -1240,16 +1426,18 @@ async def upload_distributor_inventory(
                 min_stock=15,
                 requires_prescription=requires_rx,
                 image_url=pack_shot_url,
-                is_published=False,
+                is_published=False, # New uploads start as draft for admin review
+                is_visible=True,
             )
             db.add(new_item)
+            existing_map[raw_code] = new_item
             created_count += 1
 
     db.commit()
 
     return {
         "success": True,
-        "message": f"Successfully ingested {total_parsed} medicines into the Staging Catalog.",
+        "message": f"Successfully organized {total_parsed} medicines ({created_count} new drafts, {updated_count} updated).",
         "stats": {
             "totalParsed": total_parsed,
             "created": created_count,
@@ -1262,15 +1450,15 @@ async def upload_distributor_inventory(
 
 @app.get("/api/inventory/staged")
 def get_staged_inventory(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
-    search: Optional[str] = Query(None),
-    category: Optional[str] = Query(None),
+    page: int = 1,
+    limit: int = 50,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(MedicineModel).filter(MedicineModel.is_published == False)
 
-    if search:
+    if search and isinstance(search, str) and search.strip():
         search_filter = f"%{search.strip()}%"
         query = query.filter(
             or_(
@@ -1281,7 +1469,7 @@ def get_staged_inventory(
             )
         )
 
-    if category and category != "All":
+    if category and isinstance(category, str) and category != "All":
         query = query.filter(MedicineModel.category == category)
 
     total_count = query.count()
@@ -1309,15 +1497,15 @@ def get_staged_inventory(
 
 @app.get("/api/inventory/live")
 def get_live_inventory(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
-    search: Optional[str] = Query(None),
-    category: Optional[str] = Query(None),
+    page: int = 1,
+    limit: int = 50,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     query = db.query(MedicineModel).filter(MedicineModel.is_published == True)
 
-    if search:
+    if search and isinstance(search, str) and search.strip():
         search_filter = f"%{search.strip()}%"
         query = query.filter(
             or_(
@@ -1328,7 +1516,7 @@ def get_live_inventory(
             )
         )
 
-    if category and category != "All":
+    if category and isinstance(category, str) and category != "All":
         query = query.filter(MedicineModel.category == category)
 
     total_count = query.count()
@@ -1359,6 +1547,8 @@ class MedicineUpdateRequest(BaseModel):
     manufacturer: Optional[str] = None
     image_url: Optional[str] = None
     imageUrl: Optional[str] = None
+    is_visible: Optional[bool] = None
+    isVisible: Optional[bool] = None
 
 
 @app.patch("/api/inventory/{item_id}")
@@ -1391,10 +1581,33 @@ def update_inventory_item(
         item.image_url = payload.image_url.strip()
     elif payload.imageUrl is not None:
         item.image_url = payload.imageUrl.strip()
+    if payload.is_visible is not None:
+        item.is_visible = bool(payload.is_visible)
+    elif payload.isVisible is not None:
+        item.is_visible = bool(payload.isVisible)
 
     db.commit()
     db.refresh(item)
     return {"success": True, "item": item.to_dict()}
+
+
+@app.patch("/api/inventory/{item_id}/toggle-visibility")
+def toggle_inventory_visibility(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(MedicineModel).filter(MedicineModel.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Medicine not found.")
+
+    current_state = item.is_visible if item.is_visible is not None else True
+    item.is_visible = not current_state
+    db.commit()
+    db.refresh(item)
+    return {
+        "success": True,
+        "id": item.id,
+        "name": item.name,
+        "is_visible": item.is_visible,
+        "message": f"Medicine '{item.name}' is now {'showcased in the store' if item.is_visible else 'hidden from storefront'}."
+    }
 
 
 @app.delete("/api/inventory/{item_id}")
@@ -1451,26 +1664,27 @@ def clear_staged_medicines(db: Session = Depends(get_db)):
 
 @app.get("/api/medicines")
 def get_customer_medicines(
-    category: Optional[str] = Query("All"),
-    search: Optional[str] = Query(None),
-    sort: Optional[str] = Query("popular"),
-    min_price: Optional[float] = Query(None),
-    max_price: Optional[float] = Query(None),
-    rx_filter: Optional[str] = Query("all"),
-    in_stock_only: Optional[bool] = Query(False),
+    category: Optional[str] = "All",
+    search: Optional[str] = None,
+    sort: Optional[str] = "popular",
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    rx_filter: Optional[str] = "all",
+    in_stock_only: Optional[bool] = False,
     db: Session = Depends(get_db),
 ):
     query = db.query(MedicineModel).filter(
         MedicineModel.is_published == True,
+        or_(MedicineModel.is_visible == True, MedicineModel.is_visible == None),
     )
 
-    if in_stock_only:
+    if in_stock_only is True:
         query = query.filter(MedicineModel.stock_quantity > 0)
 
-    if category and category != "All":
+    if category and isinstance(category, str) and category != "All":
         query = query.filter(MedicineModel.category == category)
 
-    if search:
+    if search and isinstance(search, str) and search.strip():
         search_filter = f"%{search.strip()}%"
         query = query.filter(
             or_(
@@ -1481,9 +1695,9 @@ def get_customer_medicines(
             )
         )
 
-    if min_price is not None:
+    if min_price is not None and isinstance(min_price, (int, float)):
         query = query.filter(MedicineModel.selling_price >= min_price)
-    if max_price is not None:
+    if max_price is not None and isinstance(max_price, (int, float)):
         query = query.filter(MedicineModel.selling_price <= max_price)
 
     if rx_filter == "otc":
@@ -1537,7 +1751,8 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
     if trending_ids:
         ordered_meds = db.query(MedicineModel).filter(
             MedicineModel.id.in_(trending_ids),
-            MedicineModel.is_published == True
+            MedicineModel.is_published == True,
+            or_(MedicineModel.is_visible == True, MedicineModel.is_visible == None),
         ).all()
         med_by_id = {m.id: m for m in ordered_meds}
         for tid in trending_ids:
@@ -1554,7 +1769,10 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
     if len(trending_list) < 8:
         existing_ids = {item["id"] for item in trending_list}
         needed = 8 - len(trending_list)
-        fallback_query = db.query(MedicineModel).filter(MedicineModel.is_published == True)
+        fallback_query = db.query(MedicineModel).filter(
+            MedicineModel.is_published == True,
+            or_(MedicineModel.is_visible == True, MedicineModel.is_visible == None),
+        )
         if existing_ids:
             fallback_query = fallback_query.filter(~MedicineModel.id.in_(existing_ids))
         fallback_meds = fallback_query.order_by(MedicineModel.stock_quantity.desc(), MedicineModel.id.asc()).limit(needed).all()
@@ -1569,7 +1787,8 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
     # ── 2. NEW LAUNCHES ──
     # Directly query the 8 newest published medicines by created_at DESC, id DESC
     newest_meds = db.query(MedicineModel).filter(
-        MedicineModel.is_published == True
+        MedicineModel.is_published == True,
+        or_(MedicineModel.is_visible == True, MedicineModel.is_visible == None),
     ).order_by(MedicineModel.created_at.desc(), MedicineModel.id.desc()).limit(8).all()
 
     now = datetime.utcnow()
@@ -1588,7 +1807,10 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
             d["is_new_arrival"] = True
         new_launches_list.append(d)
 
-    total_count = db.query(MedicineModel).filter(MedicineModel.is_published == True).count()
+    total_count = db.query(MedicineModel).filter(
+        MedicineModel.is_published == True,
+        or_(MedicineModel.is_visible == True, MedicineModel.is_visible == None),
+    ).count()
 
     return {
         "trending": trending_list,
@@ -1642,6 +1864,7 @@ class CouponCreateRequest(BaseModel):
     is_active: Optional[bool] = True
     max_uses_total: Optional[int] = None
     max_uses_per_user: Optional[int] = 1
+    show_in_cart: Optional[bool] = False
 
 
 class CouponValidateRequest(BaseModel):
@@ -1649,6 +1872,8 @@ class CouponValidateRequest(BaseModel):
     subtotal: float
     userId: Optional[str] = None
     user_id: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
 
 
 @app.get("/api/coupons")
@@ -1657,6 +1882,16 @@ def list_coupons(active_only: bool = False, db: Session = Depends(get_db)):
     if active_only:
         query = query.filter(CouponModel.is_active == True)
     return [c.to_dict() for c in query.all()]
+
+
+@app.get("/api/coupons/public")
+def list_public_coupons(db: Session = Depends(get_db)):
+    """Returns only coupons that are active AND explicitly marked by the owner to show in customer cart."""
+    coupons = db.query(CouponModel).filter(
+        CouponModel.is_active == True,
+        CouponModel.show_in_cart == True,
+    ).order_by(CouponModel.id.desc()).all()
+    return [c.to_dict() for c in coupons]
 
 
 @app.post("/api/coupons")
@@ -1676,6 +1911,7 @@ def create_coupon(payload: CouponCreateRequest, db: Session = Depends(get_db)):
         is_active=bool(payload.is_active) if payload.is_active is not None else True,
         max_uses_total=int(payload.max_uses_total) if payload.max_uses_total is not None and int(payload.max_uses_total) > 0 else None,
         max_uses_per_user=int(payload.max_uses_per_user) if payload.max_uses_per_user is not None and int(payload.max_uses_per_user) > 0 else 1,
+        show_in_cart=bool(payload.show_in_cart) if payload.show_in_cart is not None else False,
         used_by="[]",
         usage_count=0,
     )
@@ -1693,6 +1929,24 @@ def toggle_coupon(coupon_id: int, db: Session = Depends(get_db)):
     c.is_active = not c.is_active
     db.commit()
     return {"success": True, "isActive": c.is_active, "coupon": c.to_dict()}
+
+
+@app.patch("/api/coupons/{coupon_id}/toggle-cart-display")
+def toggle_coupon_cart_display(coupon_id: int, db: Session = Depends(get_db)):
+    """Allows owner to toggle whether this coupon is shown as a selectable pill in the customer cart."""
+    c = db.query(CouponModel).filter(CouponModel.id == coupon_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    current_show = c.show_in_cart if c.show_in_cart is not None else False
+    c.show_in_cart = not current_show
+    db.commit()
+    db.refresh(c)
+    return {
+        "success": True,
+        "showInCart": c.show_in_cart,
+        "coupon": c.to_dict(),
+        "message": f"Coupon '{c.code}' is now {'visible in the customer cart' if c.show_in_cart else 'hidden from customer cart'}."
+    }
 
 
 @app.delete("/api/coupons/{coupon_id}")
@@ -1729,13 +1983,26 @@ def validate_coupon(payload: CouponValidateRequest, db: Session = Depends(get_db
         }
 
     # Check per-user usage limit (e.g. 1 time per person)
-    user_ident = (payload.user_id or payload.userId or "").strip().lower()
-    if user_ident and c.max_uses_per_user:
+    identifiers = set()
+    for val in [payload.user_id, payload.userId, payload.phone, payload.email]:
+        if val and str(val).strip():
+            clean_val = str(val).strip().lower()
+            identifiers.add(clean_val)
+            digits = "".join(filter(str.isdigit, clean_val))
+            if len(digits) >= 10:
+                identifiers.add(digits[-10:])
+
+    if c.max_uses_per_user and identifiers:
         try:
             used_list = json.loads(c.used_by) if c.used_by else []
         except Exception:
             used_list = []
-        user_times = sum(1 for u in used_list if str(u).strip().lower() == user_ident)
+        user_times = 0
+        for used_item in used_list:
+            used_str = str(used_item).strip().lower()
+            used_digits = "".join(filter(str.isdigit, used_str))
+            if used_str in identifiers or (len(used_digits) >= 10 and used_digits[-10:] in identifiers):
+                user_times += 1
         if user_times >= c.max_uses_per_user:
             return {
                 "valid": False,
@@ -1906,22 +2173,63 @@ async def bulk_update_order_status(payload: BulkOrderStatusRequest, db: Session 
         raise HTTPException(status_code=400, detail="Invalid status.")
 
     updated_orders = []
+    stock_notes = []
+
     for oid in payload.order_ids:
         order = db.query(OrderModel).filter(OrderModel.order_id == oid).first()
         if order:
             order.status = st
+
+            # Handle stock deduction on bulk dispatch
+            if st in ["dispatched", "delivered"] and not order.stock_deducted:
+                try:
+                    items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+                    for it in items:
+                        m_id = it.get("id")
+                        qty = int(it.get("qty", 1) or 1)
+                        med = db.query(MedicineModel).filter(MedicineModel.id == m_id).first() if m_id else None
+                        if not med and it.get("name"):
+                            med = db.query(MedicineModel).filter(MedicineModel.name.ilike(it.get("name").strip())).first()
+                        if med and med.stock_quantity is not None:
+                            med.stock_quantity = max(0, med.stock_quantity - qty)
+                            stock_notes.append(f"{med.name} -{qty}")
+                    order.stock_deducted = True
+                except Exception as e:
+                    print("Bulk dispatch stock error:", e)
+
+            # Handle stock restore on bulk cancel
+            elif st == "cancelled" and order.stock_deducted:
+                try:
+                    items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+                    for it in items:
+                        m_id = it.get("id")
+                        qty = int(it.get("qty", 1) or 1)
+                        med = db.query(MedicineModel).filter(MedicineModel.id == m_id).first() if m_id else None
+                        if not med and it.get("name"):
+                            med = db.query(MedicineModel).filter(MedicineModel.name.ilike(it.get("name").strip())).first()
+                        if med and med.stock_quantity is not None:
+                            med.stock_quantity += qty
+                    order.stock_deducted = False
+                except Exception as e:
+                    print("Bulk cancel stock restore error:", e)
+
             updated_orders.append(order.to_dict())
 
     db.commit()
 
     # Broadcast event via SSE for live admin dashboards
     for od in updated_orders:
-        await broadcast_order_event("order_status_updated", od)
+        await broadcast_order_event("status_update", od)
+
+    msg = f"Successfully updated {len(updated_orders)} orders to '{st.title()}'."
+    if stock_notes:
+        msg += f" Stock deducted: {', '.join(stock_notes[:4])}"
 
     return {
         "success": True,
         "updatedCount": len(updated_orders),
         "status": st,
+        "message": msg,
     }
 
 
@@ -2063,3 +2371,9 @@ def get_sales_report(db: Session = Depends(get_db)):
         "topSelling": top_selling,
         "dailyRevenue": daily_chart,
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

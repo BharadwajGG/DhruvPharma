@@ -13,6 +13,7 @@ import {
     SlidersHorizontal,
     Rocket,
     Eye,
+    EyeOff,
     Pill,
     ShieldAlert,
     ChevronLeft,
@@ -93,6 +94,9 @@ export default function AdminInventory() {
     // Fetch Staged Items
     const fetchStaged = async () => {
         setIsLoadingStaged(true)
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 6000)
+
         try {
             const params = new URLSearchParams({
                 page: stagedPage,
@@ -100,7 +104,10 @@ export default function AdminInventory() {
                 search: stagedSearch,
                 category: stagedCategory,
             })
-            const res = await fetch(`http://localhost:8000/api/inventory/staged?${params}`)
+            const res = await fetch(`http://localhost:8000/api/inventory/staged?${params}`, {
+                signal: controller.signal,
+            })
+            clearTimeout(timeoutId)
             if (res.ok) {
                 const data = await res.json()
                 setStagedItems(data.items || [])
@@ -108,8 +115,9 @@ export default function AdminInventory() {
                 setStagedCategoryCounts(data.categoryCounts || {})
             }
         } catch (err) {
-            console.error('Failed to fetch staged inventory:', err)
+            console.warn('Staged inventory fetch timed out or unavailable:', err)
         } finally {
+            clearTimeout(timeoutId)
             setIsLoadingStaged(false)
         }
     }
@@ -117,6 +125,9 @@ export default function AdminInventory() {
     // Fetch Live Store Catalog
     const fetchLive = async () => {
         setIsLoadingLive(true)
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 6000)
+
         try {
             const params = new URLSearchParams({
                 page: livePage,
@@ -124,15 +135,19 @@ export default function AdminInventory() {
                 search: liveSearch,
                 category: liveCategory,
             })
-            const res = await fetch(`http://localhost:8000/api/inventory/live?${params}`)
+            const res = await fetch(`http://localhost:8000/api/inventory/live?${params}`, {
+                signal: controller.signal,
+            })
+            clearTimeout(timeoutId)
             if (res.ok) {
                 const data = await res.json()
                 setLiveItems(data.items || [])
                 setLiveTotal(data.total || 0)
             }
         } catch (err) {
-            console.error('Failed to fetch live inventory:', err)
+            console.warn('Live inventory fetch timed out or unavailable:', err)
         } finally {
+            clearTimeout(timeoutId)
             setIsLoadingLive(false)
         }
     }
@@ -160,11 +175,16 @@ export default function AdminInventory() {
         const formData = new FormData()
         formData.append('file', file)
 
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 25000)
+
         try {
             const res = await fetch('http://localhost:8000/api/inventory/upload', {
                 method: 'POST',
                 body: formData,
+                signal: controller.signal,
             })
+            clearTimeout(timeoutId)
             const data = await res.json()
 
             if (!res.ok) {
@@ -176,10 +196,12 @@ export default function AdminInventory() {
             setActiveTab('staged')
             setStagedPage(1)
             fetchStaged()
+            fetchLive()
         } catch (err) {
             console.error('Upload error:', err)
-            setFeedbackMsg({ type: 'error', text: err.message || 'Failed to upload and parse distributor CSV.' })
+            setFeedbackMsg({ type: 'error', text: err.name === 'AbortError' ? 'Upload took too long. Please verify the CSV size.' : (err.message || 'Failed to upload and parse distributor CSV.') })
         } finally {
+            clearTimeout(timeoutId)
             setIsUploading(false)
             if (fileInputRef.current) fileInputRef.current.value = ''
         }
@@ -205,6 +227,7 @@ export default function AdminInventory() {
         if (field === 'mrp') payload.mrp = parseFloat(value) || 0
         if (field === 'stock') payload.stock_quantity = parseInt(value) || 0
         if (field === 'requires_rx' || field === 'requiresPrescription') payload.requires_prescription = Boolean(value)
+        if (field === 'is_visible' || field === 'isVisible') payload.is_visible = Boolean(value)
 
         try {
             const res = await fetch(`http://localhost:8000/api/inventory/${itemId}`, {
@@ -217,6 +240,35 @@ export default function AdminInventory() {
             }
         } catch (err) {
             console.error('Inline update network error:', err)
+        }
+    }
+
+    // Toggle Showcase / Hidden in live storefront
+    const handleToggleVisibility = async (itemId, currentVal) => {
+        const nextVal = !currentVal
+        const updater = (prev) =>
+            prev.map((item) => (item.id === itemId ? { ...item, isVisible: nextVal, is_visible: nextVal } : item))
+
+        if (activeTab === 'staged') {
+            setStagedItems(updater)
+        } else {
+            setLiveItems(updater)
+        }
+
+        try {
+            const res = await fetch(`http://localhost:8000/api/inventory/${itemId}/toggle-visibility`, {
+                method: 'PATCH',
+            })
+            const data = await res.json()
+            if (res.ok) {
+                setFeedbackMsg({
+                    type: 'success',
+                    text: data.message || `Medicine visibility updated.`,
+                })
+                setTimeout(() => setFeedbackMsg(null), 3000)
+            }
+        } catch (err) {
+            console.error('Toggle visibility network error:', err)
         }
     }
 
@@ -324,14 +376,14 @@ export default function AdminInventory() {
                 {/* ── Top Header ── */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-2xl font-bold text-gray-900">Medicine Catalog &amp; Staging</h1>
-                            <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                                <Sparkles size={12} /> Auto-Categorizer Active
+                        <div className="flex items-center gap-2.5">
+                            <h1 className="text-2xl font-bold text-slate-900">Medicine Stock &amp; Catalog</h1>
+                            <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5">
+                                <Sparkles size={13} /> Smart Category Assistant
                             </span>
                         </div>
-                        <p className="text-gray-500 text-sm mt-0.5">
-                            Upload raw distributor CSVs, auto-tag clinical categories &amp; Schedule H molecules, inspect in Staging, and publish to live patients.
+                        <p className="text-slate-500 text-xs sm:text-sm mt-1">
+                            Upload distributor CSV files, review medicine details and prices, and put medicines into the live customer store.
                         </p>
                     </div>
 
@@ -339,10 +391,10 @@ export default function AdminInventory() {
                     <a
                         href="http://localhost:8000/api/inventory/sample-csv"
                         download="DHRUV_PHARMA_DISTRIBUTOR_SAMPLE.csv"
-                        className="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-semibold px-3.5 py-2 rounded-xl transition-all shadow-xs shrink-0"
+                        className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-xs shrink-0"
                     >
-                        <Download size={14} className="text-blue-600" />
-                        Download Sample Distributor CSV
+                        <Download size={14} className="text-emerald-700" />
+                        Download Sample CSV File
                     </a>
                 </div>
 
@@ -351,30 +403,30 @@ export default function AdminInventory() {
                     <div
                         className={`p-4 rounded-xl flex items-start gap-3 border text-sm transition-all ${
                             feedbackMsg.type === 'success'
-                                ? 'bg-green-50 border-green-200 text-green-800'
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                                 : feedbackMsg.type === 'error'
-                                ? 'bg-red-50 border-red-200 text-red-800'
+                                ? 'bg-rose-50 border-rose-200 text-rose-800'
                                 : 'bg-blue-50 border-blue-200 text-blue-800'
                         }`}
                     >
                         {feedbackMsg.type === 'success' ? (
-                            <CheckCircle size={18} className="text-green-600 shrink-0 mt-0.5" />
+                            <CheckCircle size={18} className="text-emerald-600 shrink-0 mt-0.5" />
                         ) : feedbackMsg.type === 'error' ? (
-                            <AlertCircle size={18} className="text-red-600 shrink-0 mt-0.5" />
+                            <AlertCircle size={18} className="text-rose-600 shrink-0 mt-0.5" />
                         ) : (
                             <Pill size={18} className="text-blue-600 shrink-0 mt-0.5" />
                         )}
-                        <div className="flex-1 font-medium">{feedbackMsg.text}</div>
+                        <div className="flex-1 font-semibold">{feedbackMsg.text}</div>
                         <button
                             onClick={() => setFeedbackMsg(null)}
-                            className="text-gray-400 hover:text-gray-600"
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
                         >
                             <X size={16} />
                         </button>
                     </div>
                 )}
 
-                {/* ── CSV Upload & Ingestion Dropzone ── */}
+                {/* ── CSV Upload Dropzone ── */}
                 <div
                     onDragOver={(e) => {
                         e.preventDefault()
@@ -390,8 +442,8 @@ export default function AdminInventory() {
                     }}
                     className={`rounded-2xl border-2 border-dashed p-6 transition-all text-center relative ${
                         isDragging
-                            ? 'border-blue-500 bg-blue-50/70 scale-[1.005]'
-                            : 'border-gray-200 bg-white hover:border-blue-300 shadow-xs'
+                            ? 'border-emerald-500 bg-emerald-50/70 scale-[1.005]'
+                            : 'border-slate-200 bg-white hover:border-emerald-300 shadow-xs'
                     }`}
                 >
                     <input
@@ -408,7 +460,7 @@ export default function AdminInventory() {
 
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-4 text-left">
-                            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 shrink-0">
+                            <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-700 shrink-0">
                                 {isUploading ? (
                                     <Loader2 size={24} className="animate-spin" />
                                 ) : (
@@ -416,13 +468,13 @@ export default function AdminInventory() {
                                 )}
                             </div>
                             <div>
-                                <h3 className="font-bold text-gray-900 text-sm">
+                                <h3 className="font-bold text-slate-900 text-sm">
                                     {isUploading
-                                        ? 'Parsing & Auto-Categorizing Distributor CSV...'
-                                        : 'Import Distributor CSV File'}
+                                        ? 'Reading & Organizing Distributor File...'
+                                        : 'Upload Distributor Medicine File (.CSV)'}
                                 </h3>
-                                <p className="text-xs text-gray-500 mt-0.5">
-                                    Supports Marg ERP, Busy, and MedSys exports. Blank salts are automatically resolved from medicine brand names.
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Supports CSV exports from Marg ERP, Busy, or Excel spreadsheets. Salts and categories are assigned automatically.
                                 </p>
                             </div>
                         </div>
@@ -432,32 +484,32 @@ export default function AdminInventory() {
                                 type="button"
                                 disabled={isUploading}
                                 onClick={() => fileInputRef.current?.click()}
-                                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-colors flex items-center gap-2"
+                                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
                             >
                                 <Upload size={14} />
-                                <span>{isUploading ? 'Uploading...' : 'Upload CSV File'}</span>
+                                <span>{isUploading ? 'Uploading...' : 'Select CSV File'}</span>
                             </button>
                         </div>
                     </div>
 
                     {/* Instant Parsing Breakdown Summary */}
                     {uploadSummary && (
-                        <div className="mt-5 pt-4 border-t border-gray-100 text-left bg-blue-50/50 rounded-xl p-4">
+                        <div className="mt-5 pt-4 border-t border-slate-100 text-left bg-emerald-50/40 rounded-xl p-4">
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
-                                    <CheckCircle size={14} className="text-green-600" />
-                                    Parsing Complete: {uploadSummary.totalParsed} Medicines Ingested
+                                <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                                    <CheckCircle size={15} className="text-emerald-600" />
+                                    Upload Finished: {uploadSummary.totalParsed} Medicines Ready in Drafts
                                 </span>
-                                <span className="text-[11px] font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
-                                    {uploadSummary.rxFlagged} Flagged as Prescription (Rx)
+                                <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                                    {uploadSummary.rxFlagged} Require Doctor Prescription
                                 </span>
                             </div>
                             <div className="flex flex-wrap gap-1.5 mt-2">
                                 {Object.entries(uploadSummary.categoryBreakdown || {}).map(([cat, count]) => (
                                     <span
                                         key={cat}
-                                        className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${
-                                            CATEGORY_COLORS[cat] || 'bg-gray-100 text-gray-700'
+                                        className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                                            CATEGORY_COLORS[cat] || 'bg-slate-100 text-slate-700'
                                         }`}
                                     >
                                         {cat}: <strong className="font-bold">{count}</strong>
@@ -469,22 +521,22 @@ export default function AdminInventory() {
                 </div>
 
                 {/* ── Tabs Navigation ── */}
-                <div className="flex items-center justify-between border-b border-gray-200">
+                <div className="flex items-center justify-between border-b border-slate-200">
                     <div className="flex gap-4">
                         <button
                             onClick={() => setActiveTab('staged')}
-                            className={`pb-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                            className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
                                 activeTab === 'staged'
-                                    ? 'border-blue-600 text-blue-600'
-                                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                                    ? 'border-emerald-600 text-emerald-700'
+                                    : 'border-transparent text-slate-500 hover:text-slate-800'
                             }`}
                         >
-                            <span>Stage 1: Staging Queue (Drafts)</span>
+                            <span>New Uploads (Drafts)</span>
                             <span
                                 className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                                     activeTab === 'staged'
-                                        ? 'bg-blue-100 text-blue-700'
-                                        : 'bg-gray-100 text-gray-600'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : 'bg-slate-100 text-slate-600'
                                 }`}
                             >
                                 {stagedTotal}
@@ -493,18 +545,18 @@ export default function AdminInventory() {
 
                         <button
                             onClick={() => setActiveTab('live')}
-                            className={`pb-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                            className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
                                 activeTab === 'live'
-                                    ? 'border-green-600 text-green-700'
-                                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                                    ? 'border-emerald-600 text-emerald-700'
+                                    : 'border-transparent text-slate-500 hover:text-slate-800'
                             }`}
                         >
-                            <span>Stage 2: Live Storefront Catalog</span>
+                            <span>Store Catalog (Live)</span>
                             <span
                                 className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                                     activeTab === 'live'
-                                        ? 'bg-green-100 text-green-800'
-                                        : 'bg-gray-100 text-gray-600'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : 'bg-slate-100 text-slate-600'
                                 }`}
                             >
                                 {liveTotal}
@@ -514,46 +566,46 @@ export default function AdminInventory() {
 
                     <button
                         onClick={activeTab === 'staged' ? fetchStaged : fetchLive}
-                        className="text-xs text-gray-500 hover:text-blue-600 flex items-center gap-1 transition-colors pb-3"
+                        className="text-xs text-slate-500 hover:text-emerald-700 flex items-center gap-1.5 transition-colors pb-3 font-semibold cursor-pointer"
                     >
                         <RefreshCw size={12} className={isLoadingStaged || isLoadingLive ? 'animate-spin' : ''} />
-                        Refresh
+                        Refresh List
                     </button>
                 </div>
 
-                {/* ── Staging Sticky Action Bar (When in Staging) ── */}
+                {/* ── Staging Action Bar (When in Drafts) ── */}
                 {activeTab === 'staged' && (
-                    <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                        <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white shrink-0">
-                                <ShieldAlert size={18} />
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-amber-500 rounded-xl flex items-center justify-center text-white shrink-0">
+                                <ShieldAlert size={19} />
                             </div>
                             <div>
-                                <h4 className="text-sm font-bold text-amber-900">
-                                    {stagedTotal} Draft Medicines Waiting in Staging
+                                <h4 className="text-sm font-bold text-amber-950">
+                                    {stagedTotal} Draft Medicines Waiting for Approval
                                 </h4>
-                                <p className="text-xs text-amber-700">
-                                    Patients CANNOT see these medicines. Verify categories, prices, and Rx requirements below before publishing.
+                                <p className="text-xs text-amber-800">
+                                    Customers cannot see these draft medicines yet. You can edit names, prices, or categories below, then click &ldquo;Put in Store&rdquo;.
                                 </p>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-2.5 shrink-0">
                             {stagedTotal > 0 && (
                                 <button
                                     onClick={handleClearStaging}
-                                    className="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold text-xs px-3.5 py-2 rounded-xl transition-colors shadow-2xs"
+                                    className="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 font-bold text-xs px-3.5 py-2 rounded-xl transition-colors shadow-2xs cursor-pointer"
                                 >
-                                    Discard Drafts
+                                    Clear Drafts
                                 </button>
                             )}
                             <button
                                 disabled={stagedTotal === 0}
                                 onClick={() => setShowPublishModal(true)}
-                                className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                             >
                                 <Rocket size={14} />
-                                <span>Publish to Live Storefront</span>
+                                <span>Put in Store (Publish All)</span>
                             </button>
                         </div>
                     </div>
@@ -649,29 +701,30 @@ export default function AdminInventory() {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 font-semibold uppercase tracking-wider text-[10px]">
-                                    <th className="py-3 px-4">Code</th>
-                                    <th className="py-3 px-4 min-w-[220px]">Medicine Name &amp; Composition</th>
-                                    <th className="py-3 px-4 min-w-[190px]">Category (Click to Change)</th>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                                    <th className="py-3 px-4">Item Code</th>
+                                    <th className="py-3 px-4 min-w-[220px]">Medicine Name &amp; Salt</th>
+                                    <th className="py-3 px-4 min-w-[190px]">Category</th>
                                     <th className="py-3 px-3 text-right">MRP (₹)</th>
                                     <th className="py-3 px-3 text-right">Selling Price (₹)</th>
-                                    <th className="py-3 px-3 text-center">Stock</th>
-                                    <th className="py-3 px-3 text-center">Rx Required</th>
-                                    <th className="py-3 px-4 text-center">Actions</th>
+                                    <th className="py-3 px-3 text-center">Stock Qty</th>
+                                    <th className="py-3 px-3 text-center">Doctor Rx Needed?</th>
+                                    <th className="py-3 px-3 text-center">Show in Store?</th>
+                                    <th className="py-3 px-4 text-center">Remove</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100">
+                            <tbody className="divide-y divide-slate-100">
                                 {currentItems.map((item) => (
-                                    <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
+                                    <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
                                         {/* Code */}
-                                        <td className="py-3 px-4 font-mono text-[11px] text-gray-500 whitespace-nowrap">
+                                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
                                             {item.itemCode}
                                         </td>
 
                                         {/* Name & Composition (Editable) */}
                                         <td className="py-3 px-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0 bg-white shadow-2xs flex items-center justify-center">
+                                                <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden shrink-0 bg-white shadow-2xs flex items-center justify-center">
                                                     <MedicineImage medicine={item} aspectRatio="thumb" showGenuineBadge={false} className="w-full h-full" />
                                                 </div>
                                                 <div className="min-w-0 flex-1">
@@ -686,7 +739,7 @@ export default function AdminInventory() {
                                                                     if (e.key === 'Enter') handleSaveName(item.id)
                                                                     if (e.key === 'Escape') setEditingNameId(null)
                                                                 }}
-                                                                className="w-full px-2 py-1 text-xs font-bold border-2 border-blue-500 rounded-lg outline-none bg-blue-50/70 text-gray-900 shadow-xs"
+                                                                className="w-full px-2 py-1 text-xs font-bold border-2 border-emerald-600 rounded-lg outline-none bg-emerald-50/60 text-slate-900 shadow-xs"
                                                                 placeholder="Edit medicine name..."
                                                             />
                                                             <button
@@ -700,7 +753,7 @@ export default function AdminInventory() {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setEditingNameId(null)}
-                                                                className="p-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors cursor-pointer shrink-0"
+                                                                className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-colors cursor-pointer shrink-0"
                                                                 title="Cancel"
                                                             >
                                                                 <X size={13} />
@@ -708,7 +761,7 @@ export default function AdminInventory() {
                                                         </div>
                                                     ) : (
                                                         <div className="flex items-center gap-1.5 group/name">
-                                                            <p className="font-bold text-gray-900 text-xs truncate" title={item.name}>
+                                                            <p className="font-bold text-slate-900 text-xs truncate" title={item.name}>
                                                                 {item.name}
                                                             </p>
                                                             <button
@@ -717,17 +770,17 @@ export default function AdminInventory() {
                                                                     setEditingNameId(item.id)
                                                                     setEditingNameValue(item.name)
                                                                 }}
-                                                                className="opacity-0 group-hover/name:opacity-100 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all cursor-pointer shrink-0"
-                                                                title="Click to rename medicine in catalog"
+                                                                className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-all cursor-pointer shrink-0"
+                                                                title="Click pencil to edit medicine name"
                                                             >
-                                                                <Pencil size={11} />
+                                                                <Pencil size={12} />
                                                             </button>
                                                         </div>
                                                     )}
-                                                    <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1" title={item.salt}>
-                                                        {item.salt || <span className="italic text-gray-400">No composition listed</span>}
+                                                    <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1" title={item.salt}>
+                                                        {item.salt || <span className="italic text-slate-400">No salt listed</span>}
                                                     </p>
-                                                    <p className="text-[10px] text-gray-400 mt-0.5">{item.manufacturer}</p>
+                                                    <p className="text-[10px] text-slate-400 mt-0.5">{item.manufacturer}</p>
                                                 </div>
                                             </div>
                                         </td>
@@ -738,11 +791,11 @@ export default function AdminInventory() {
                                                 value={item.category}
                                                 onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
                                                 className={`text-[11px] font-semibold py-1 px-2.5 rounded-lg border outline-none cursor-pointer transition-all ${
-                                                    CATEGORY_COLORS[item.category] || 'bg-gray-100 text-gray-800 border-gray-200'
+                                                    CATEGORY_COLORS[item.category] || 'bg-slate-100 text-slate-800 border-slate-200'
                                                 }`}
                                             >
                                                 {ALL_CATEGORIES.filter((c) => c !== 'All').map((cat) => (
-                                                    <option key={cat} value={cat} className="bg-white text-gray-800">
+                                                    <option key={cat} value={cat} className="bg-white text-slate-800">
                                                         {cat}
                                                     </option>
                                                 ))}
@@ -756,7 +809,7 @@ export default function AdminInventory() {
                                                 step="0.5"
                                                 defaultValue={item.mrp}
                                                 onBlur={(e) => handleUpdateItem(item.id, 'mrp', e.target.value)}
-                                                className="w-18 text-right px-2 py-1 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500 bg-white"
+                                                className="w-18 text-right px-2 py-1 border border-slate-200 rounded-lg text-xs outline-none focus:border-emerald-600 bg-white"
                                             />
                                         </td>
 
@@ -767,7 +820,7 @@ export default function AdminInventory() {
                                                 step="0.5"
                                                 defaultValue={item.sellingPrice || item.price}
                                                 onBlur={(e) => handleUpdateItem(item.id, 'sellingPrice', e.target.value)}
-                                                className="w-18 text-right font-semibold text-blue-700 px-2 py-1 border border-blue-200 rounded-lg text-xs outline-none focus:border-blue-500 bg-blue-50/40"
+                                                className="w-18 text-right font-bold text-emerald-800 px-2 py-1 border border-emerald-200 rounded-lg text-xs outline-none focus:border-emerald-600 bg-emerald-50/30"
                                             />
                                         </td>
 
@@ -777,12 +830,12 @@ export default function AdminInventory() {
                                                 type="number"
                                                 defaultValue={item.stock}
                                                 onBlur={(e) => handleUpdateItem(item.id, 'stock', e.target.value)}
-                                                className={`w-14 text-center px-1.5 py-1 border rounded-lg text-xs outline-none focus:border-blue-500 ${
+                                                className={`w-14 text-center px-1.5 py-1 border rounded-lg text-xs outline-none focus:border-emerald-600 font-semibold ${
                                                     item.stock <= 0
-                                                        ? 'border-red-300 text-red-600 bg-red-50'
+                                                        ? 'border-rose-300 text-rose-600 bg-rose-50'
                                                         : item.stock <= (item.minStock || 15)
-                                                        ? 'border-orange-300 text-orange-600 bg-orange-50'
-                                                        : 'border-gray-200 text-gray-800 bg-white'
+                                                        ? 'border-amber-300 text-amber-700 bg-amber-50'
+                                                        : 'border-slate-200 text-slate-800 bg-white'
                                                 }`}
                                             />
                                         </td>
@@ -798,22 +851,48 @@ export default function AdminInventory() {
                                                         !(item.requires_rx || item.requiresPrescription)
                                                     )
                                                 }
-                                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
+                                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${
                                                     item.requires_rx || item.requiresPrescription
-                                                        ? 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100'
-                                                        : 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100'
+                                                        ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                                                        : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
                                                 }`}
                                                 title="Click to toggle Prescription requirement"
                                             >
-                                                {item.requires_rx || item.requiresPrescription ? '⚡ Rx Required' : '✓ OTC'}
+                                                {item.requires_rx || item.requiresPrescription ? 'Yes (Rx Required)' : 'No (Without Rx)'}
                                             </button>
+                                        </td>
+
+                                        {/* Showcase / Hide Toggle Pill */}
+                                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                                            {(() => {
+                                                const isVis = item.isVisible !== false && item.is_visible !== false
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleToggleVisibility(item.id, isVis)}
+                                                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                                                            isVis
+                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
+                                                                : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                                                        }`}
+                                                        title={
+                                                            isVis
+                                                                ? 'Currently visible on customer storefront. Click to hide.'
+                                                                : 'Currently hidden from customer storefront. Click to showcase.'
+                                                        }
+                                                    >
+                                                        {isVis ? <Eye size={12} className="text-emerald-600" /> : <EyeOff size={12} className="text-slate-400" />}
+                                                        <span>{isVis ? 'Visible' : 'Hidden'}</span>
+                                                    </button>
+                                                )
+                                            })()}
                                         </td>
 
                                         {/* Actions */}
                                         <td className="py-3 px-4 text-center whitespace-nowrap">
                                             <button
                                                 onClick={() => handleDeleteItem(item.id, item.name)}
-                                                className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                                                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
                                                 title="Remove medicine"
                                             >
                                                 <Trash2 size={14} />
@@ -824,15 +903,15 @@ export default function AdminInventory() {
 
                                 {currentItems.length === 0 && (
                                     <tr>
-                                        <td colSpan={8} className="text-center py-12 text-gray-400">
-                                            <Pill size={36} className="mx-auto mb-2 text-gray-200" />
-                                            <p className="font-semibold text-gray-600 text-sm">
-                                                No medicines found in {activeTab === 'staged' ? 'Staging' : 'Live Catalog'}.
+                                        <td colSpan={9} className="text-center py-12 text-slate-400">
+                                            <Pill size={36} className="mx-auto mb-2 text-slate-300" />
+                                            <p className="font-bold text-slate-600 text-sm">
+                                                No medicines found in {activeTab === 'staged' ? 'New Uploads (Drafts)' : 'Store Catalog (Live)'}.
                                             </p>
-                                            <p className="text-xs text-gray-400 mt-0.5">
+                                            <p className="text-xs text-slate-400 mt-0.5">
                                                 {activeTab === 'staged'
-                                                    ? 'Upload a distributor CSV above or download the sample CSV to begin.'
-                                                    : 'Publish verified draft medicines from the Staging queue to display here.'}
+                                                    ? 'Upload a distributor CSV file above to begin adding medicines.'
+                                                    : 'Put draft medicines into the store from the New Uploads tab to display them here.'}
                                             </p>
                                         </td>
                                     </tr>
@@ -842,13 +921,13 @@ export default function AdminInventory() {
                     </div>
 
                     {/* Pagination Footer */}
-                    <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                    <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                         <span>
                             Showing{' '}
                             <strong>{currentItems.length > 0 ? (currentPage - 1) * currentLimit + 1 : 0}</strong>{' '}
                             to{' '}
                             <strong>{Math.min(currentPage * currentLimit, currentTotal)}</strong> of{' '}
-                            <strong>{currentTotal}</strong> items
+                            <strong>{currentTotal}</strong> medicines
                         </span>
 
                         <div className="flex items-center gap-2">
@@ -858,12 +937,12 @@ export default function AdminInventory() {
                                     if (activeTab === 'staged') setStagedPage((p) => Math.max(1, p - 1))
                                     else setLivePage((p) => Math.max(1, p - 1))
                                 }}
-                                className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                                className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors cursor-pointer"
                             >
                                 <ChevronLeft size={14} />
                             </button>
 
-                            <span className="font-medium text-gray-700">
+                            <span className="font-semibold text-slate-700">
                                 Page {currentPage} of {totalPages}
                             </span>
 
@@ -873,7 +952,7 @@ export default function AdminInventory() {
                                     if (activeTab === 'staged') setStagedPage((p) => Math.min(totalPages, p + 1))
                                     else setLivePage((p) => Math.min(totalPages, p + 1))
                                 }}
-                                className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                                className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors cursor-pointer"
                             >
                                 <ChevronRight size={14} />
                             </button>
@@ -886,29 +965,28 @@ export default function AdminInventory() {
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-green-700 font-bold text-base">
+                                <div className="flex items-center gap-2 text-emerald-700 font-bold text-base">
                                     <Rocket size={20} />
-                                    <h3>Publish to Patient Storefront</h3>
+                                    <h3>Put Medicines in Live Store</h3>
                                 </div>
                                 <button
                                     onClick={() => setShowPublishModal(false)}
-                                    className="text-gray-400 hover:text-gray-600"
+                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
                                 >
                                     <X size={18} />
                                 </button>
                             </div>
 
-                            <p className="text-xs text-gray-600 leading-relaxed">
-                                You are about to publish <strong className="text-gray-900 font-bold">{stagedTotal}</strong> staged medicine(s) to the public storefront at{' '}
-                                <code className="bg-gray-100 px-1 py-0.5 rounded text-blue-600">/medicines</code>.
+                            <p className="text-xs text-slate-600 leading-relaxed">
+                                You are about to make <strong className="text-slate-900 font-bold">{stagedTotal}</strong> draft medicines available on the Dhruv Pharma website for customers to buy online.
                             </p>
 
-                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800 space-y-1">
-                                <p className="font-semibold">What happens after publishing:</p>
-                                <ul className="list-disc pl-4 space-y-0.5 text-blue-700 text-[11px]">
-                                    <li>Patients can immediately search, browse, and order these medicines.</li>
-                                    <li>Prescription flags (Rx) and auto-assigned categories become active.</li>
-                                    <li>Staging queue is cleared and moved to Live Catalog.</li>
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-900 space-y-1">
+                                <p className="font-bold">What happens next:</p>
+                                <ul className="list-disc pl-4 space-y-0.5 text-emerald-800 text-[11px]">
+                                    <li>Customers can immediately search, view, and order these medicines.</li>
+                                    <li>Prescription rules and categories will be live.</li>
+                                    <li>Drafts will move into your Live Store Catalog.</li>
                                 </ul>
                             </div>
 
@@ -916,25 +994,25 @@ export default function AdminInventory() {
                                 <button
                                     type="button"
                                     onClick={() => setShowPublishModal(false)}
-                                    className="flex-1 py-2.5 border border-gray-200 text-gray-700 font-semibold rounded-xl text-xs hover:bg-gray-50 transition-colors"
+                                    className="flex-1 py-2.5 border border-slate-200 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-50 transition-colors cursor-pointer"
                                 >
-                                    Cancel &amp; Continue Reviewing
+                                    Cancel
                                 </button>
                                 <button
                                     type="button"
                                     disabled={isPublishing}
                                     onClick={handlePublishAll}
-                                    className="flex-1 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                                 >
                                     {isPublishing ? (
                                         <>
                                             <Loader2 size={14} className="animate-spin" />
-                                            <span>Publishing...</span>
+                                            <span>Putting in Store...</span>
                                         </>
                                     ) : (
                                         <>
                                             <Rocket size={14} />
-                                            <span>Confirm &amp; Publish</span>
+                                            <span>Confirm &amp; Put in Store</span>
                                         </>
                                     )}
                                 </button>
