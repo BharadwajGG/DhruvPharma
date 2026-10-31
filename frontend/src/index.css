@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* =============================================
-   DHRUV PHARMA — Global Styles
+   DHRUV PHARMA — Global Styles & Micro-Animations
    ============================================= */
 
 @layer base {
@@ -13,32 +13,143 @@
 
     html {
         scroll-behavior: smooth;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
     }
 
     body {
-        font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
         background-color: #f8fafc;
-        color: #1e293b;
-        line-height: 1.6;
+        color: #0f172a;
+        line-height: 1.5;
+        overflow-x: hidden;
+    }
+}
+
+/* ── Keyframe Animations ── */
+@keyframes radarPulse {
+    0% {
+        transform: scale(0.95);
+        opacity: 0.85;
+    }
+    70% {
+        transform: scale(1.6);
+        opacity: 0;
+    }
+    100% {
+        transform: scale(1.7);
+        opacity: 0;
+    }
+}
+
+@keyframes shimmerAnimation {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+@keyframes floatGentle {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-6px);
+    }
+}
+
+@keyframes pulseSubtle {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.88;
+        transform: scale(1.02);
+    }
+}
+
+@keyframes glowEffect {
+    0%, 100% {
+        filter: drop-shadow(0 0 12px rgba(37, 99, 235, 0.25));
+    }
+    50% {
+        filter: drop-shadow(0 0 24px rgba(16, 185, 129, 0.35));
     }
 }
 
 @layer utilities {
-    /* Custom scrollbar */
+    /* Radar wave for floating call button */
+    .radar-ring {
+        position: absolute;
+        inset: -6px;
+        border-radius: 9999px;
+        border: 2px solid #22c55e;
+        animation: radarPulse 2.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+        pointer-events: none;
+    }
+    .radar-ring-delayed {
+        position: absolute;
+        inset: -6px;
+        border-radius: 9999px;
+        border: 2px solid #16a34a;
+        animation: radarPulse 2.8s cubic-bezier(0.24, 0, 0.38, 1) infinite 1.4s;
+        pointer-events: none;
+    }
+
+    /* Shimmer Skeleton placeholder */
+    .skeleton-shimmer {
+        background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+        background-size: 200% 100%;
+        animation: shimmerAnimation 1.6s infinite;
+    }
+
+    /* Gentle floating element */
+    .animate-float {
+        animation: floatGentle 4s ease-in-out infinite;
+    }
+
+    /* Subtle pulse */
+    .animate-subtle-pulse {
+        animation: pulseSubtle 3s ease-in-out infinite;
+    }
+
+    /* Ambient card elevation & polish */
+    .card-modern {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 1.25rem;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card-modern:hover {
+        transform: translateY(-3px);
+        border-color: #93c5fd;
+        box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+    }
+
+    /* Interactive button tap */
+    .btn-tap {
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn-tap:active {
+        transform: scale(0.96);
+    }
+
+    /* Custom thin scrollbar */
     .scrollbar-thin::-webkit-scrollbar {
-        width: 6px;
+        width: 5px;
+        height: 5px;
     }
-
     .scrollbar-thin::-webkit-scrollbar-track {
-        background: #f1f5f9;
+        background: #f8fafc;
     }
-
     .scrollbar-thin::-webkit-scrollbar-thumb {
-        background: #94a3b8;
+        background: #cbd5e1;
         border-radius: 9999px;
     }
-
     .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-        background: #64748b;
+        background: #94a3b8;
     }
 }

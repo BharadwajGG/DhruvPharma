@@ -185,23 +185,29 @@ export default function OrderViaCallWidget() {
                     </div>
                 )}
 
-                {/* The Floating Pill Trigger (Larger & Bottom-Right) */}
-                <button
-                    type="button"
-                    onClick={() => setIsOpen(!isOpen)}
-                    className="flex items-center gap-3 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 active:scale-95 text-white font-bold text-sm py-3.5 px-5 sm:py-4 sm:px-6 rounded-full shadow-2xl hover:shadow-blue-500/40 transition-all transform hover:-translate-y-1 cursor-pointer border-2 border-white/20"
-                    aria-label="Order medicines via phone call"
-                >
-                    <span className="relative flex h-3.5 w-3.5 shrink-0">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500" />
-                    </span>
-                    <Phone size={18} className="shrink-0" />
-                    <span className="tracking-wide text-xs sm:text-sm font-extrabold whitespace-nowrap">Order via Call</span>
-                    <span className="font-mono text-xs sm:text-sm bg-white/20 hover:bg-white/30 px-2.5 py-0.5 rounded-full font-bold border border-white/25 whitespace-nowrap">
-                        95035 00725
-                    </span>
-                </button>
+                {/* The Floating Pill Trigger (Larger & Bottom-Right with Radar Wave Animation) */}
+                <div className="relative group">
+                    {/* Concentric radar ripple rings */}
+                    <span className="radar-ring" />
+                    <span className="radar-ring-delayed" />
+
+                    <button
+                        type="button"
+                        onClick={() => setIsOpen(!isOpen)}
+                        className="relative z-10 flex items-center gap-2.5 sm:gap-3 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 active:scale-95 text-white font-bold text-sm py-3 px-4 sm:py-3.5 sm:px-6 rounded-full shadow-2xl hover:shadow-blue-500/40 transition-all transform hover:-translate-y-1 cursor-pointer border-2 border-white/20"
+                        aria-label="Order medicines via phone call"
+                    >
+                        <span className="relative flex h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-3 w-3 sm:h-3.5 sm:w-3.5 bg-emerald-500" />
+                        </span>
+                        <Phone size={17} className="shrink-0" />
+                        <span className="tracking-wide text-xs sm:text-sm font-extrabold whitespace-nowrap">Order via Call</span>
+                        <span className="font-mono text-[11px] sm:text-xs bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded-full font-bold border border-white/25 whitespace-nowrap">
+                            95035 00725
+                        </span>
+                    </button>
+                </div>
             </div>
 
             {/* ── "Request Pharmacist Callback" Modal ── */}

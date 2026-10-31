@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG10" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f0f9ff"/>
+    </radialGradient>
+    <filter id="packDropShadow10" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#0369a1" flood-opacity="0.14" />
+    </filter>
+    <radialGradient id="azithralPill" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="60%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG10)"/>
+
+  <!-- Azithral 500 / Azikem 3-Tablet Blister -->
+  <g filter="url(#packDropShadow10)" transform="translate(60, 65)">
+    <rect x="0" y="0" width="280" height="270" rx="16" fill="#f8fafc" stroke="#bae6fd" stroke-width="2"/>
+
+    <!-- Blue Header Alembic / Alkem -->
+    <rect x="0" y="0" width="280" height="58" rx="16" fill="#0284c7"/>
+    <text x="20" y="24" font-family="sans-serif" font-size="10" font-weight="800" fill="#e0f2fe" letter-spacing="1">ALEMBIC / ALKEM</text>
+    <text x="20" y="48" font-family="sans-serif" font-size="22" font-weight="900" fill="#ffffff" letter-spacing="0.5">Azithral 500</text>
+    <text x="200" y="44" font-family="sans-serif" font-size="10" font-weight="800" fill="#e0f2fe">3 TABLETS</text>
+
+    <!-- Subtitle -->
+    <rect x="0" y="58" width="280" height="24" fill="#e0f2fe"/>
+    <text x="20" y="74" font-family="sans-serif" font-size="9.5" font-weight="700" fill="#0369a1">Azithromycin Tablets IP 500 mg • 3-Day Course</text>
+
+    <!-- 3 Big Oval Tablets Centerpiece -->
+    <g transform="translate(140, 115)">
+      <ellipse cx="0" cy="0" rx="55" ry="22" fill="url(#azithralPill)" stroke="#0369a1" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">AZITHRAL 500</text>
+    </g>
+    <g transform="translate(140, 165)">
+      <ellipse cx="0" cy="0" rx="55" ry="22" fill="url(#azithralPill)" stroke="#0369a1" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">AZITHRAL 500</text>
+    </g>
+    <g transform="translate(140, 215)">
+      <ellipse cx="0" cy="0" rx="55" ry="22" fill="url(#azithralPill)" stroke="#0369a1" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">AZITHRAL 500</text>
+    </g>
+
+    <!-- Footer -->
+    <rect x="0" y="245" width="280" height="25" rx="12" fill="#0284c7"/>
+    <text x="140" y="261" font-family="sans-serif" font-size="9" font-weight="800" fill="#ffffff" text-anchor="middle">COMPLETE 3-DAY ANTIBIOTIC THERAPY</text>
+  </g>
+</svg>

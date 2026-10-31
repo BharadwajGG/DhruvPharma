@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, text
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +62,7 @@ class MedicineModel(Base):
     stock_quantity = Column(Integer, default=0)
     min_stock = Column(Integer, default=15)
     requires_prescription = Column(Boolean, default=False)
+    image_url = Column(String(500), nullable=True, default="")
     is_published = Column(Boolean, default=False, index=True)  # False = Staged/Draft, True = Live Store
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -88,6 +89,8 @@ class MedicineModel(Base):
             "minStock": self.min_stock,
             "requires_rx": self.requires_prescription,
             "requiresPrescription": self.requires_prescription,
+            "imageUrl": self.image_url or "",
+            "image_url": self.image_url or "",
             "isPublished": self.is_published,
             "inStock": self.stock_quantity > 0,
             "discountPct": discount_pct,
@@ -118,7 +121,7 @@ class OrderModel(Base):
     payment_status = Column(String(50), default="pending")  # pending, paid
     prescription_file = Column(String(300), nullable=True, default="")
     status = Column(String(50), default="pending", index=True)  # pending, confirmed, dispatched, delivered, cancelled
-    expected_delivery = Column(String(150), nullable=True, default="Expected in 2–4 hours")
+    expected_delivery = Column(String(150), nullable=True, default="Expected in 3–4 Days")
     delivery_agent = Column(String(100), nullable=True, default="Sanjay Kumar (Dhruv Express)")
     notes = Column(Text, nullable=True, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -153,7 +156,7 @@ class OrderModel(Base):
             "paymentStatus": self.payment_status,
             "prescriptionFile": self.prescription_file or "",
             "status": self.status,
-            "expectedDelivery": self.expected_delivery or "Expected in 2–4 hours",
+            "expectedDelivery": self.expected_delivery or "Expected in 3–4 Days",
             "type": "prescription" if bool(self.prescription_file) else "direct",
             "agent": self.delivery_agent or "—",
             "deliveryAgent": self.delivery_agent or "—",
@@ -195,6 +198,85 @@ class CallbackRequestModel(Base):
         }
 
 
+class CouponModel(Base):
+    __tablename__ = "coupons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, index=True, nullable=False)
+    description = Column(String(200), default="")
+    discount_type = Column(String(20), default="percentage")  # "percentage" or "fixed"
+    discount_value = Column(Float, default=10.0)  # 10% or ₹50
+    min_order_amount = Column(Float, default=0.0)
+    max_discount = Column(Float, default=500.0)
+    is_active = Column(Boolean, default=True)
+    usage_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "code": self.code,
+            "description": self.description or "",
+            "discountType": self.discount_type,
+            "discountValue": self.discount_value,
+            "minOrderAmount": self.min_order_amount,
+            "maxDiscount": self.max_discount,
+            "isActive": self.is_active,
+            "usageCount": self.usage_count,
+            "createdAt": self.created_at.strftime("%d %b %Y") if self.created_at else "",
+        }
+
+
+class ReviewModel(Base):
+    __tablename__ = "product_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    medicine_id = Column(Integer, ForeignKey("medicines.id"), nullable=False, index=True)
+    user_name = Column(String(150), default="Verified Patient")
+    rating = Column(Integer, default=5)
+    comment = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "medicineId": self.medicine_id,
+            "userName": self.user_name,
+            "rating": self.rating,
+            "comment": self.comment or "",
+            "createdAt": self.created_at.strftime("%d %b %Y") if self.created_at else "",
+        }
+
+
+class UserProfileModel(Base):
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(100), unique=True, index=True, nullable=False)
+    full_name = Column(String(200), default="")
+    phone = Column(String(50), default="")
+    email = Column(String(200), default="")
+    addresses = Column(Text, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        try:
+            parsed_addresses = json.loads(self.addresses)
+        except Exception:
+            parsed_addresses = []
+
+        return {
+            "id": self.id,
+            "userId": self.user_id,
+            "fullName": self.full_name or "",
+            "phone": self.phone or "",
+            "email": self.email or "",
+            "addresses": parsed_addresses,
+            "createdAt": self.created_at.strftime("%d %b %Y") if self.created_at else "",
+        }
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
@@ -205,13 +287,19 @@ def init_db():
             cursor.execute("PRAGMA table_info(orders)")
             cols = [col[1] for col in cursor.fetchall()]
             if cols and "expected_delivery" not in cols:
-                cursor.execute("ALTER TABLE orders ADD COLUMN expected_delivery VARCHAR(150) DEFAULT 'Expected in 2–4 hours'")
+                cursor.execute("ALTER TABLE orders ADD COLUMN expected_delivery VARCHAR(150) DEFAULT 'Expected in 3–4 Days'")
                 conn.connection.commit()
             if cols and "user_id" not in cols:
                 cursor.execute("ALTER TABLE orders ADD COLUMN user_id VARCHAR(100) DEFAULT ''")
                 conn.connection.commit()
+
+            cursor.execute("PRAGMA table_info(medicines)")
+            med_cols = [col[1] for col in cursor.fetchall()]
+            if med_cols and "image_url" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN image_url VARCHAR(500) DEFAULT ''")
+                conn.connection.commit()
         except Exception as e:
-            print("Order migration notice:", e)
+            print("Database migration notice:", e)
 
     db = SessionLocal()
     try:
@@ -463,6 +551,67 @@ def init_db():
             ]
             for order in sample_orders:
                 db.add(OrderModel(**order))
+            db.commit()
+
+        # 4. Seed default coupons if empty
+        if db.query(CouponModel).count() == 0:
+            sample_coupons = [
+                {
+                    "code": "DHRUV10",
+                    "description": "10% off on all medicines (orders above ₹199)",
+                    "discount_type": "percentage",
+                    "discount_value": 10.0,
+                    "min_order_amount": 199.0,
+                    "max_discount": 150.0,
+                    "is_active": True,
+                },
+                {
+                    "code": "WELCOME50",
+                    "description": "Flat ₹50 off on your first order above ₹399",
+                    "discount_type": "fixed",
+                    "discount_value": 50.0,
+                    "min_order_amount": 399.0,
+                    "max_discount": 50.0,
+                    "is_active": True,
+                },
+                {
+                    "code": "HEALTH5",
+                    "description": "Flat 5% instant wellness discount on any order",
+                    "discount_type": "percentage",
+                    "discount_value": 5.0,
+                    "min_order_amount": 0.0,
+                    "max_discount": 100.0,
+                    "is_active": True,
+                },
+            ]
+            for c in sample_coupons:
+                db.add(CouponModel(**c))
+            db.commit()
+
+        # 5. Seed sample product reviews if empty
+        if db.query(ReviewModel).count() == 0:
+            sample_reviews = [
+                {
+                    "medicine_id": 1,
+                    "user_name": "Ramesh Patil",
+                    "rating": 5,
+                    "comment": "Genuine GSK Augmentin 625 Duo. Fast delivery to Shahada, very well packed.",
+                },
+                {
+                    "medicine_id": 2,
+                    "user_name": "Pooja Sharma",
+                    "rating": 5,
+                    "comment": "Authentic Dolo 650 with long expiry. Best price in Nandurbar district.",
+                },
+                {
+                    "medicine_id": 4,
+                    "user_name": "Vijay Kulkarni",
+                    "rating": 5,
+                    "comment": "Regular BP medicine, prompt 3-day delivery to Shirpur. Highly recommended!",
+                },
+            ]
+            for r in sample_reviews:
+                db.add(ReviewModel(**r))
             db.commit()
 
     finally:

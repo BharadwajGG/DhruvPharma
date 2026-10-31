@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useDelivery } from '../context/DeliveryContext'
 import {
     Upload,
     Camera,
@@ -17,10 +18,11 @@ const STEPS = [
     { icon: Upload,        title: 'Upload Prescription', desc: 'Photo, PDF or image in any format' },
     { icon: Clock,         title: 'Owner Reviews',       desc: 'Reviewed within 30 minutes' },
     { icon: CheckCircle,   title: 'Order Confirmed',     desc: 'Available medicines are confirmed' },
-    { icon: Phone,         title: 'Delivered to You',    desc: 'Doorstep delivery in 2–4 hours' },
+    { icon: Phone,         title: 'Delivered to You',    desc: 'Doorstep delivery in 3–4 Days' },
 ]
 
 export default function PrescriptionPage() {
+    const { selectedLocation, serviceableAreas } = useDelivery()
     const fileInputRef               = useRef(null)
     const [files, setFiles]          = useState([])
     const [dragActive, setDragActive] = useState(false)
@@ -28,9 +30,15 @@ export default function PrescriptionPage() {
         patientName:  '',
         phone:        '',
         address:      '',
-        district:     '',
+        district:     selectedLocation?.name || 'Nandurbar',
         notes:        '',
     })
+
+    useEffect(() => {
+        if (selectedLocation?.name && !formData.district) {
+            setFormData((prev) => ({ ...prev, district: selectedLocation.name }))
+        }
+    }, [selectedLocation])
     const [submitted, setSubmitted]      = useState(false)
     const [submittedRxId, setSubmittedRxId] = useState('')
     const [isUploading, setIsUploading]  = useState(false)
@@ -395,17 +403,18 @@ export default function PrescriptionPage() {
                                     <select
                                         value={formData.district}
                                         onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                                        className={`w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all cursor-pointer
+                                        className={`w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all cursor-pointer font-medium
                                             ${errors.district
                                                 ? 'border-red-300 bg-red-50'
                                                 : 'border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100'
                                             }`}
                                     >
-                                        <option value="">Select your district</option>
-                                        <option value="Pune">Pune</option>
-                                        <option value="Nashik">Nashik</option>
-                                        <option value="Ahmednagar">Ahmednagar</option>
-                                        <option value="Aurangabad">Aurangabad (Chhatrapati Sambhajinagar)</option>
+                                        <option value="">Select your service area / hub</option>
+                                        {serviceableAreas.map((area) => (
+                                            <option key={area.pincode} value={area.name}>
+                                                {area.name} ({area.pincode}) — Delivery in {area.deliveryTime}
+                                            </option>
+                                        ))}
                                     </select>
                                     {errors.district && (
                                         <p className="text-xs text-red-500 mt-1 flex items-center gap-1">

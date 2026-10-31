@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG16" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f0fdfa"/>
+    </radialGradient>
+    <filter id="packDropShadow16" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#0f766e" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG16)"/>
+
+  <!-- Okacet Cipla Strip -->
+  <g filter="url(#packDropShadow16)" transform="translate(60, 65)">
+    <rect x="0" y="0" width="280" height="270" rx="16" fill="#f8fafc" stroke="#99f6e4" stroke-width="2"/>
+    <rect x="0" y="0" width="280" height="58" rx="16" fill="#0f766e"/>
+    <text x="20" y="24" font-family="sans-serif" font-size="10" font-weight="800" fill="#ccfbf1">CIPLA</text>
+    <text x="20" y="48" font-family="sans-serif" font-size="22" font-weight="900" fill="#ffffff">OKACET 10MG</text>
+    <text x="200" y="44" font-family="sans-serif" font-size="10" font-weight="700" fill="#ccfbf1">10 TABLETS</text>
+
+    <rect x="0" y="58" width="280" height="24" fill="#ccfbf1"/>
+    <text x="20" y="74" font-family="sans-serif" font-size="10" font-weight="700" fill="#115e59">Cetirizine Hydrochloride Tablets IP 10 mg • Anti-Allergy</text>
+
+    <!-- Small White Scored Tablets -->
+    <g transform="translate(70, 130)">
+      <circle cx="0" cy="0" r="22" fill="#ffffff" stroke="#14b8a6" stroke-width="1.5"/>
+      <line x1="-14" y1="0" x2="14" y2="0" stroke="#0d9488" stroke-width="1.5"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">OKACET</text>
+      <text x="0" y="9" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">10</text>
+    </g>
+    <g transform="translate(210, 130)">
+      <circle cx="0" cy="0" r="22" fill="#ffffff" stroke="#14b8a6" stroke-width="1.5"/>
+      <line x1="-14" y1="0" x2="14" y2="0" stroke="#0d9488" stroke-width="1.5"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">OKACET</text>
+      <text x="0" y="9" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">10</text>
+    </g>
+    <g transform="translate(70, 200)">
+      <circle cx="0" cy="0" r="22" fill="#ffffff" stroke="#14b8a6" stroke-width="1.5"/>
+      <line x1="-14" y1="0" x2="14" y2="0" stroke="#0d9488" stroke-width="1.5"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">OKACET</text>
+      <text x="0" y="9" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">10</text>
+    </g>
+    <g transform="translate(210, 200)">
+      <circle cx="0" cy="0" r="22" fill="#ffffff" stroke="#14b8a6" stroke-width="1.5"/>
+      <line x1="-14" y1="0" x2="14" y2="0" stroke="#0d9488" stroke-width="1.5"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">OKACET</text>
+      <text x="0" y="9" font-family="sans-serif" font-size="6.5" font-weight="900" fill="#0f766e" text-anchor="middle">10</text>
+    </g>
+
+    <rect x="0" y="245" width="280" height="25" rx="12" fill="#0f766e"/>
+    <text x="140" y="261" font-family="sans-serif" font-size="9" font-weight="800" fill="#ffffff" text-anchor="middle">24HR ALLERGY, SNEEZING &amp; RUNNY NOSE RELIEF</text>
+  </g>
+</svg>

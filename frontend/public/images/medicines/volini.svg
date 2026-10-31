@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG6" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#eff6ff"/>
+    </radialGradient>
+    <filter id="packDropShadow6" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#1e3a8a" flood-opacity="0.16" />
+    </filter>
+    <linearGradient id="voliniBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="60%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG6)"/>
+
+  <!-- Volini Pain Relief Gel Tube -->
+  <g filter="url(#packDropShadow6)" transform="translate(135, 40) rotate(-10)">
+    <!-- Ergonomic Ribbed Cap -->
+    <rect x="30" y="0" width="46" height="26" rx="6" fill="#f97316" stroke="#ea580c"/>
+    <line x1="38" y1="0" x2="38" y2="26" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
+    <line x1="53" y1="0" x2="53" y2="26" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
+    <line x1="68" y1="0" x2="68" y2="26" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
+
+    <!-- Tube Shoulder -->
+    <path d="M 25 26 L 80 26 L 98 48 L 8 48 Z" fill="#1e3a8a"/>
+
+    <!-- Main Blue Body -->
+    <rect x="8" y="48" width="90" height="225" fill="url(#voliniBlue)"/>
+
+    <!-- Fiery Orange Heat Wave -->
+    <path d="M 8 100 Q 53 130 98 100 L 98 160 Q 53 190 8 160 Z" fill="#f97316"/>
+
+    <!-- Brand Typography Vertical -->
+    <g transform="translate(53, 155) rotate(-90)">
+      <text x="0" y="0" font-family="sans-serif" font-size="22" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">VOLINI</text>
+      <text x="0" y="14" font-family="sans-serif" font-size="8" font-weight="800" fill="#fed7aa" text-anchor="middle">MAX STRENGTH PAIN RELIEF GEL</text>
+    </g>
+
+    <!-- Fast Relief 2 Minutes Badge -->
+    <circle cx="53" cy="225" r="16" fill="#ffffff"/>
+    <text x="53" y="222" font-family="sans-serif" font-size="7" font-weight="900" fill="#1e3a8a" text-anchor="middle">INSTANT</text>
+    <text x="53" y="231" font-family="sans-serif" font-size="7" font-weight="900" fill="#ea580c" text-anchor="middle">RELIEF</text>
+
+    <!-- Bottom Crimp -->
+    <rect x="0" y="273" width="106" height="15" rx="3" fill="#1e3a8a" stroke="#172554"/>
+  </g>
+</svg>

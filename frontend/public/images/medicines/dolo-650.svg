@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </radialGradient>
+    <filter id="packDropShadow" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.14" />
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.08" />
+    </filter>
+    <linearGradient id="foilSheen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="30%" stop-color="#e2e8f0" stop-opacity="0.4"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.8"/>
+      <stop offset="70%" stop-color="#cbd5e1" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#f8fafc" stop-opacity="0.9"/>
+    </linearGradient>
+    <radialGradient id="pillGrad" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="45%" stop-color="#bae6fd"/>
+      <stop offset="90%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Clean Studio Backdrop -->
+  <rect width="400" height="400" fill="url(#bgG)"/>
+
+  <!-- Blister Strip Container -->
+  <g filter="url(#packDropShadow)" transform="translate(60, 45)">
+    <!-- Base Aluminum Foil Strip -->
+    <rect x="0" y="0" width="280" height="310" rx="16" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="2"/>
+    <rect x="2" y="2" width="276" height="306" rx="14" fill="url(#foilSheen)"/>
+
+    <!-- Foil Embossed Grid Texture -->
+    <path d="M 0 50 L 280 50 M 0 115 L 280 115 M 0 180 L 280 180 M 0 245 L 280 245 M 93 0 L 93 310 M 186 0 L 186 310" 
+          stroke="#94a3b8" stroke-width="0.75" stroke-dasharray="3,2" opacity="0.45"/>
+
+    <!-- Top Brand Foil Header -->
+    <rect x="0" y="0" width="280" height="50" rx="16" fill="#0284c7" clip-path="polygon(0 0, 280 0, 280 50, 0 50)"/>
+    <rect x="0" y="38" width="280" height="12" fill="#0369a1"/>
+    
+    <!-- Micro Labs Brand & Pill Name -->
+    <text x="18" y="24" font-family="system-ui, sans-serif" font-size="10" font-weight="800" fill="#bae6fd" letter-spacing="1.5">MICRO LABS</text>
+    <text x="18" y="42" font-family="system-ui, sans-serif" font-size="16" font-weight="900" fill="#ffffff" letter-spacing="0.5">DOLO-650</text>
+    <text x="210" y="32" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#ffffff" opacity="0.9">15 TABLETS</text>
+
+    <!-- 3x4 Grid of Authentic Dolo 650 Round Sky-Blue Tablets -->
+    <!-- Row 1 -->
+    <g transform="translate(47, 85)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+    <g transform="translate(140, 85)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+    <g transform="translate(233, 85)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+
+    <!-- Row 2 -->
+    <g transform="translate(47, 150)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+    <g transform="translate(140, 150)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+    <g transform="translate(233, 150)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+
+    <!-- Row 3 -->
+    <g transform="translate(47, 215)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+    <g transform="translate(140, 215)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+    <g transform="translate(233, 215)">
+      <circle cx="0" cy="0" r="24" fill="url(#pillGrad)" stroke="#0284c7" stroke-width="1.5"/>
+      <line x1="-16" y1="0" x2="16" y2="0" stroke="#0369a1" stroke-width="1.5" opacity="0.6"/>
+      <text x="0" y="-4" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">DOLO</text>
+      <text x="0" y="10" font-family="sans-serif" font-size="8" font-weight="800" fill="#0369a1" text-anchor="middle">650</text>
+    </g>
+
+    <!-- Bottom Strip Info -->
+    <rect x="0" y="275" width="280" height="35" rx="14" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="14" y="293" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#475569">Paracetamol Tablets IP 650 mg</text>
+    <text x="14" y="304" font-family="monospace" font-size="8" fill="#94a3b8">B.No: DL2491 • EXP: 09/2027</text>
+  </g>
+</svg>

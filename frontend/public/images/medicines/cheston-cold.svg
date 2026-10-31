@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG17" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#eff6ff"/>
+    </radialGradient>
+    <filter id="packDropShadow17" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#1e3a8a" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG17)"/>
+
+  <!-- Cheston Cold Strip -->
+  <g filter="url(#packDropShadow17)" transform="translate(60, 65)">
+    <rect x="0" y="0" width="280" height="270" rx="16" fill="#f8fafc" stroke="#93c5fd" stroke-width="2"/>
+    <rect x="0" y="0" width="280" height="58" rx="16" fill="#ea580c"/>
+    <text x="20" y="24" font-family="sans-serif" font-size="10" font-weight="800" fill="#ffedd5">CIPLA</text>
+    <text x="20" y="48" font-family="sans-serif" font-size="20" font-weight="900" fill="#ffffff">CHESTON COLD</text>
+    <text x="200" y="44" font-family="sans-serif" font-size="10" font-weight="700" fill="#ffedd5">10 TABLETS</text>
+
+    <rect x="0" y="58" width="280" height="24" fill="#ffedd5"/>
+    <text x="20" y="74" font-family="sans-serif" font-size="9.5" font-weight="700" fill="#9a3412">Paracetamol, Cetirizine &amp; Phenylephrine Tablets</text>
+
+    <!-- White Tablets with Blue/Orange blister pockets -->
+    <g transform="translate(70, 130)">
+      <circle cx="0" cy="0" r="24" fill="#ffffff" stroke="#ea580c" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="8" font-weight="900" fill="#ea580c" text-anchor="middle">CHESTON</text>
+    </g>
+    <g transform="translate(210, 130)">
+      <circle cx="0" cy="0" r="24" fill="#ffffff" stroke="#ea580c" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="8" font-weight="900" fill="#ea580c" text-anchor="middle">CHESTON</text>
+    </g>
+    <g transform="translate(70, 200)">
+      <circle cx="0" cy="0" r="24" fill="#ffffff" stroke="#ea580c" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="8" font-weight="900" fill="#ea580c" text-anchor="middle">CHESTON</text>
+    </g>
+    <g transform="translate(210, 200)">
+      <circle cx="0" cy="0" r="24" fill="#ffffff" stroke="#ea580c" stroke-width="1.5"/>
+      <text x="0" y="4" font-family="sans-serif" font-size="8" font-weight="900" fill="#ea580c" text-anchor="middle">CHESTON</text>
+    </g>
+
+    <rect x="0" y="245" width="280" height="25" rx="12" fill="#ea580c"/>
+    <text x="140" y="261" font-family="sans-serif" font-size="9" font-weight="800" fill="#ffffff" text-anchor="middle">TRIPLE ACTION COLD, FEVER &amp; CONGESTION RELIEF</text>
+  </g>
+</svg>

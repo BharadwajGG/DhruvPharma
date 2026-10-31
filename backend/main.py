@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel, CallbackRequestModel
+from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel, CallbackRequestModel, CouponModel, ReviewModel, UserProfileModel, SessionLocal
 from categorizer import categorize_medicine, calculate_selling_price, clean_text
 from notifications import (
     generate_clinical_info,
@@ -25,6 +25,123 @@ from notifications import (
     generate_whatsapp_message,
     send_order_email,
 )
+
+# ==============================================================================
+# TIER 2 BRAND IMAGE SEED REGISTRY (Authentic Studio Pack Shots)
+# ==============================================================================
+BRAND_PACK_SHOTS = [
+    {
+        "patterns": [r"\bDOLO\b", r"\bDOLO[- ]?650\b", r"\bDOLIPRANE\b", r"\bPARACIP[- ]?650\b", r"\bPYRICOOL[- ]?650\b"],
+        "url": "/images/medicines/dolo-650.svg"
+    },
+    {
+        "patterns": [r"\bPAN[- ]?40\b", r"\bP[- ]?40\b", r"\bPENTAB[- ]?40\b", r"\bPAN[- ]?D\b", r"\bP[- ]?40[- ]?DSR\b"],
+        "url": "/images/medicines/pan-40.svg"
+    },
+    {
+        "patterns": [r"\bLIMCEE\b"],
+        "url": "/images/medicines/limcee.svg"
+    },
+    {
+        "patterns": [r"\bAUGMENTIN\b", r"\bAMOXYCLAV\b", r"\bALMOX[- ]?CV\b", r"\bMEGAMOX[- ]?CV\b", r"\bCIPMOX[- ]?CV\b", r"\bMOXIKEM[- ]?CV\b"],
+        "url": "/images/medicines/augmentin-625.svg"
+    },
+    {
+        "patterns": [r"\bCIPLADINE\b"],
+        "url": "/images/medicines/cipladine.svg"
+    },
+    {
+        "patterns": [r"\bVOLINI\b"],
+        "url": "/images/medicines/volini.svg"
+    },
+    {
+        "patterns": [r"\bBECOSULES\b", r"\bBECOLES\b", r"\bBECODER\b", r"\bBEECEEKEM\b"],
+        "url": "/images/medicines/becosules.svg"
+    },
+    {
+        "patterns": [r"\bSHELCAL\b", r"\bCIPCAL\b"],
+        "url": "/images/medicines/shelcal-500.svg"
+    },
+    {
+        "patterns": [r"\bTELMA\b", r"\bTELMIKIND\b", r"\bTELPRES\b", r"\bVENPRES\b"],
+        "url": "/images/medicines/telma-40.svg"
+    },
+    {
+        "patterns": [r"\bAZITHRAL\b", r"\bAZIKEM\b", r"\bAZICIP\b", r"\bAZIPRO\b", r"\bZATURA\b"],
+        "url": "/images/medicines/azithral-500.svg"
+    },
+    {
+        "patterns": [r"\bSUMO[- +]?GEL\b", r"\bSUMO\b"],
+        "url": "/images/medicines/sumo-gel.svg"
+    },
+    {
+        "patterns": [r"\bOMEE\b"],
+        "url": "/images/medicines/omee.svg"
+    },
+    {
+        "patterns": [r"\bVICKS\b"],
+        "url": "/images/medicines/vicks.svg"
+    },
+    {
+        "patterns": [r"\bBENADRYL\b"],
+        "url": "/images/medicines/benadryl.svg"
+    },
+    {
+        "patterns": [r"\bDISPRIN\b"],
+        "url": "/images/medicines/disprin.svg"
+    },
+    {
+        "patterns": [r"\bOKACET\b"],
+        "url": "/images/medicines/okacet.svg"
+    },
+    {
+        "patterns": [r"\bCHESTON[- ]?COLD\b"],
+        "url": "/images/medicines/cheston-cold.svg"
+    },
+    {
+        "patterns": [r"\bSAFI\b"],
+        "url": "/images/medicines/safi.svg"
+    },
+    {
+        "patterns": [r"\bSKINSHINE\b"],
+        "url": "/images/medicines/skinshine.svg"
+    },
+    {
+        "patterns": [r"\bOMNIGEL\b"],
+        "url": "/images/medicines/omnigel.svg"
+    },
+]
+
+
+def resolve_brand_pack_shot(name: str, manufacturer: str = "") -> str:
+    """Matches medicine names to authentic studio pack shots in registry."""
+    combined = f"{name or ''} {manufacturer or ''}".upper()
+    for entry in BRAND_PACK_SHOTS:
+        for pat in entry["patterns"]:
+            if re.search(pat, combined, re.IGNORECASE):
+                return entry["url"]
+    return ""
+
+
+def backfill_brand_pack_shots():
+    """Auto-links matching medicines in database to genuine manufacturer pack shot URLs."""
+    db = SessionLocal()
+    try:
+        meds = db.query(MedicineModel).all()
+        updated = 0
+        for m in meds:
+            pack_url = resolve_brand_pack_shot(m.name, m.manufacturer)
+            if pack_url and (not m.image_url or m.image_url != pack_url):
+                m.image_url = pack_url
+                updated += 1
+        if updated > 0:
+            db.commit()
+            print(f"Auto-linked {updated} medicine(s) to authentic manufacturer pack shots.")
+    except Exception as e:
+        print("Notice during brand pack backfill:", e)
+    finally:
+        db.close()
+
 
 # Ensure upload folders exist
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,8 +151,9 @@ ORDERS_PRESCRIPTIONS_DIR = os.path.join(UPLOADS_DIR, "order_prescriptions")
 os.makedirs(PRESCRIPTIONS_DIR, exist_ok=True)
 os.makedirs(ORDERS_PRESCRIPTIONS_DIR, exist_ok=True)
 
-# Initialize database
+# Initialize database and auto-link pack shots
 init_db()
+backfill_brand_pack_shots()
 
 app = FastAPI(
     title="Dhruv Pharma Backend API",
@@ -214,7 +332,7 @@ async def place_order(
         payment_status="paid" if paymentMethod == "UPI" else "pending",
         prescription_file=prescription_url,
         status=initial_status,
-        expected_delivery="Expected in 2–4 hours",
+        expected_delivery="Expected in 3–4 Days",
         delivery_agent="Sanjay Kumar (Dhruv Express)",
         notes=(notes or "").strip(),
         created_at=datetime.now(),
@@ -777,7 +895,7 @@ async def create_admin_phone_order(
         payment_status="pending",
         prescription_file="",
         status="confirmed",  # Confirmed directly by pharmacist
-        expected_delivery="Expected in 2–4 hours (Phone Order)",
+        expected_delivery="Expected in 3–4 Days (Phone Order)",
         delivery_agent="Sanjay Kumar (Dhruv Express)",
         notes=payload.notes or "Phone Order confirmed by pharmacist",
         created_at=datetime.now(),
@@ -989,6 +1107,11 @@ async def upload_distributor_inventory(
     mrp_idx = find_column_index(headers, ["mrp", "m.r.p.", "m.r.p", "maximumretailprice"])
     rate_idx = find_column_index(headers, ["rate", "cost", "costprice", "purchaserate", "ptr", "wrate"])
     stock_idx = find_column_index(headers, ["stock", "qty", "quantity", "balance", "curstock", "closingstock"])
+    image_idx = find_column_index(headers, [
+        "image", "imageurl", "image_url", "image_link", "imagelink",
+        "img", "imgurl", "img_url", "photo", "photourl", "picture",
+        "pictureurl", "productimage", "product_image", "packshot", "url"
+    ])
 
     if name_idx is None:
         raise HTTPException(
@@ -1059,6 +1182,13 @@ async def upload_distributor_inventory(
 
         selling_price = calculate_selling_price(mrp=raw_mrp, cost_price=raw_rate, discount_pct=12.0)
 
+        raw_image_url = (
+            row[image_idx].strip()
+            if image_idx is not None and image_idx < len(row) and row[image_idx].strip()
+            else ""
+        )
+        pack_shot_url = raw_image_url or resolve_brand_pack_shot(raw_name, raw_company)
+
         existing = db.query(MedicineModel).filter(MedicineModel.item_code == raw_code).first()
 
         if existing:
@@ -1071,6 +1201,8 @@ async def upload_distributor_inventory(
             existing.selling_price = selling_price
             existing.stock_quantity = raw_stock
             existing.requires_prescription = requires_rx
+            if pack_shot_url:
+                existing.image_url = pack_shot_url
             existing.is_published = False
             updated_count += 1
         else:
@@ -1086,6 +1218,7 @@ async def upload_distributor_inventory(
                 stock_quantity=raw_stock,
                 min_stock=15,
                 requires_prescription=requires_rx,
+                image_url=pack_shot_url,
                 is_published=False,
             )
             db.add(new_item)
@@ -1203,6 +1336,8 @@ class MedicineUpdateRequest(BaseModel):
     salt: Optional[str] = None
     name: Optional[str] = None
     manufacturer: Optional[str] = None
+    image_url: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
 @app.patch("/api/inventory/{item_id}")
@@ -1231,6 +1366,10 @@ def update_inventory_item(
         item.name = payload.name.strip()
     if payload.manufacturer is not None:
         item.manufacturer = payload.manufacturer.strip()
+    if payload.image_url is not None:
+        item.image_url = payload.image_url.strip()
+    elif payload.imageUrl is not None:
+        item.image_url = payload.imageUrl.strip()
 
     db.commit()
     db.refresh(item)
@@ -1294,12 +1433,18 @@ def get_customer_medicines(
     category: Optional[str] = Query("All"),
     search: Optional[str] = Query(None),
     sort: Optional[str] = Query("popular"),
+    min_price: Optional[float] = Query(None),
+    max_price: Optional[float] = Query(None),
+    rx_filter: Optional[str] = Query("all"),
+    in_stock_only: Optional[bool] = Query(False),
     db: Session = Depends(get_db),
 ):
     query = db.query(MedicineModel).filter(
         MedicineModel.is_published == True,
-        MedicineModel.stock_quantity > 0,
     )
+
+    if in_stock_only:
+        query = query.filter(MedicineModel.stock_quantity > 0)
 
     if category and category != "All":
         query = query.filter(MedicineModel.category == category)
@@ -1311,13 +1456,26 @@ def get_customer_medicines(
                 MedicineModel.name.ilike(search_filter),
                 MedicineModel.salt.ilike(search_filter),
                 MedicineModel.manufacturer.ilike(search_filter),
+                MedicineModel.item_code.ilike(search_filter),
             )
         )
+
+    if min_price is not None:
+        query = query.filter(MedicineModel.selling_price >= min_price)
+    if max_price is not None:
+        query = query.filter(MedicineModel.selling_price <= max_price)
+
+    if rx_filter == "otc":
+        query = query.filter(MedicineModel.requires_prescription == False)
+    elif rx_filter == "rx":
+        query = query.filter(MedicineModel.requires_prescription == True)
 
     if sort == "price_asc":
         query = query.order_by(MedicineModel.selling_price.asc())
     elif sort == "price_desc":
         query = query.order_by(MedicineModel.selling_price.desc())
+    elif sort == "name_asc":
+        query = query.order_by(MedicineModel.name.asc())
     else:
         query = query.order_by(MedicineModel.id.desc())
 
@@ -1349,3 +1507,380 @@ def get_customer_medicine_detail(item_id: int, db: Session = Depends(get_db)):
     # Merge dynamic clinical guidelines
     base_dict.update(clinical_data)
     return base_dict
+
+
+# ==============================================================================
+# 5. COUPONS & DISCOUNTS API (/api/coupons)
+# ==============================================================================
+
+class CouponCreateRequest(BaseModel):
+    code: str
+    description: Optional[str] = ""
+    discount_type: Optional[str] = "percentage"
+    discount_value: float
+    min_order_amount: Optional[float] = 0.0
+    max_discount: Optional[float] = 500.0
+    is_active: Optional[bool] = True
+
+
+class CouponValidateRequest(BaseModel):
+    code: str
+    subtotal: float
+
+
+@app.get("/api/coupons")
+def list_coupons(active_only: bool = False, db: Session = Depends(get_db)):
+    query = db.query(CouponModel).order_by(CouponModel.id.desc())
+    if active_only:
+        query = query.filter(CouponModel.is_active == True)
+    return [c.to_dict() for c in query.all()]
+
+
+@app.post("/api/coupons")
+def create_coupon(payload: CouponCreateRequest, db: Session = Depends(get_db)):
+    code_upper = payload.code.strip().upper()
+    existing = db.query(CouponModel).filter(CouponModel.code == code_upper).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Coupon code '{code_upper}' already exists.")
+
+    new_coupon = CouponModel(
+        code=code_upper,
+        description=payload.description or "",
+        discount_type=payload.discount_type or "percentage",
+        discount_value=float(payload.discount_value),
+        min_order_amount=float(payload.min_order_amount or 0.0),
+        max_discount=float(payload.max_discount or 500.0),
+        is_active=bool(payload.is_active),
+    )
+    db.add(new_coupon)
+    db.commit()
+    db.refresh(new_coupon)
+    return {"success": True, "coupon": new_coupon.to_dict()}
+
+
+@app.patch("/api/coupons/{coupon_id}/toggle")
+def toggle_coupon(coupon_id: int, db: Session = Depends(get_db)):
+    c = db.query(CouponModel).filter(CouponModel.id == coupon_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    c.is_active = not c.is_active
+    db.commit()
+    return {"success": True, "isActive": c.is_active, "coupon": c.to_dict()}
+
+
+@app.delete("/api/coupons/{coupon_id}")
+def delete_coupon(coupon_id: int, db: Session = Depends(get_db)):
+    c = db.query(CouponModel).filter(CouponModel.id == coupon_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    db.delete(c)
+    db.commit()
+    return {"success": True, "message": "Coupon deleted successfully."}
+
+
+@app.post("/api/coupons/validate")
+def validate_coupon(payload: CouponValidateRequest, db: Session = Depends(get_db)):
+    code_clean = payload.code.strip().upper()
+    c = db.query(CouponModel).filter(CouponModel.code == code_clean, CouponModel.is_active == True).first()
+    if not c:
+        return {"valid": False, "discount": 0.0, "message": "Invalid or expired coupon code."}
+
+    if payload.subtotal < c.min_order_amount:
+        return {
+            "valid": False,
+            "discount": 0.0,
+            "message": f"Coupon requires a minimum order subtotal of ₹{c.min_order_amount:.0f}.",
+        }
+
+    if c.discount_type == "percentage":
+        discount = round((payload.subtotal * c.discount_value) / 100.0, 2)
+        if c.max_discount and discount > c.max_discount:
+            discount = c.max_discount
+    else:
+        discount = min(c.discount_value, payload.subtotal)
+
+    return {
+        "valid": True,
+        "code": c.code,
+        "discount": discount,
+        "description": c.description,
+        "message": f"Coupon applied! You saved ₹{discount:.0f}.",
+        "coupon": c.to_dict(),
+    }
+
+
+# ==============================================================================
+# 6. PRODUCT REVIEWS API (/api/medicines/{item_id}/reviews)
+# ==============================================================================
+
+class ReviewCreateRequest(BaseModel):
+    user_name: Optional[str] = "Verified Patient"
+    rating: int = 5
+    comment: str
+
+
+@app.get("/api/medicines/{item_id}/reviews")
+def get_medicine_reviews(item_id: int, db: Session = Depends(get_db)):
+    reviews = db.query(ReviewModel).filter(ReviewModel.medicine_id == item_id).order_by(ReviewModel.id.desc()).all()
+    avg_rating = 5.0
+    if reviews:
+        avg_rating = round(sum(r.rating for r in reviews) / len(reviews), 1)
+    return {
+        "reviews": [r.to_dict() for r in reviews],
+        "count": len(reviews),
+        "averageRating": avg_rating,
+    }
+
+
+@app.post("/api/medicines/{item_id}/reviews")
+def add_medicine_review(item_id: int, payload: ReviewCreateRequest, db: Session = Depends(get_db)):
+    med = db.query(MedicineModel).filter(MedicineModel.id == item_id).first()
+    if not med:
+        raise HTTPException(status_code=404, detail="Medicine not found.")
+
+    rating = max(1, min(5, int(payload.rating)))
+    new_rev = ReviewModel(
+        medicine_id=item_id,
+        user_name=payload.user_name.strip() or "Verified Patient",
+        rating=rating,
+        comment=payload.comment.strip(),
+    )
+    db.add(new_rev)
+    db.commit()
+    db.refresh(new_rev)
+    return {"success": True, "review": new_rev.to_dict()}
+
+
+# ==============================================================================
+# 7. CUSTOMER PROFILE & SAVED ADDRESSES API (/api/user/profile)
+# ==============================================================================
+
+class UserProfileUpdateRequest(BaseModel):
+    user_id: str
+    full_name: Optional[str] = ""
+    phone: Optional[str] = ""
+    email: Optional[str] = ""
+    addresses: Optional[List[dict]] = []
+
+
+@app.get("/api/user/profile")
+def get_user_profile(user_id: Optional[str] = None, email: Optional[str] = None, phone: Optional[str] = None, db: Session = Depends(get_db)):
+    lookup = user_id or email or phone
+    if not lookup:
+        return {"profile": None}
+
+    profile = db.query(UserProfileModel).filter(
+        or_(
+            UserProfileModel.user_id == lookup,
+            UserProfileModel.email == lookup,
+            UserProfileModel.phone == lookup,
+        )
+    ).first()
+
+    return {"profile": profile.to_dict() if profile else None}
+
+
+@app.post("/api/user/profile")
+def save_user_profile(payload: UserProfileUpdateRequest, db: Session = Depends(get_db)):
+    uid = payload.user_id.strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail="User identifier required.")
+
+    profile = db.query(UserProfileModel).filter(UserProfileModel.user_id == uid).first()
+    addresses_json = json.dumps(payload.addresses or [])
+
+    if profile:
+        profile.full_name = payload.full_name or profile.full_name
+        profile.phone = payload.phone or profile.phone
+        profile.email = payload.email or profile.email
+        profile.addresses = addresses_json
+    else:
+        profile = UserProfileModel(
+            user_id=uid,
+            full_name=payload.full_name or "",
+            phone=payload.phone or "",
+            email=payload.email or "",
+            addresses=addresses_json,
+        )
+        db.add(profile)
+
+    db.commit()
+    db.refresh(profile)
+    return {"success": True, "profile": profile.to_dict()}
+
+
+# ==============================================================================
+# 8. CUSTOMER PRESCRIPTION HISTORY (/api/user/prescriptions)
+# ==============================================================================
+
+@app.get("/api/user/prescriptions")
+def get_user_prescriptions(phone: Optional[str] = None, email: Optional[str] = None, user_id: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(PrescriptionModel)
+    filters = []
+    if phone:
+        clean_p = re.sub(r"[^\d]", "", phone)
+        if len(clean_p) >= 10:
+            filters.append(PrescriptionModel.phone.ilike(f"%{clean_p[-10:]}%"))
+    if email:
+        filters.append(PrescriptionModel.notes.ilike(f"%{email.strip()}%"))
+
+    if not filters:
+        return []
+
+    prescriptions = query.filter(or_(*filters)).order_by(PrescriptionModel.id.desc()).all()
+    return [p.to_dict() for p in prescriptions]
+
+
+# ==============================================================================
+# 9. BULK ORDER STATUS UPDATE (/api/orders/bulk-status)
+# ==============================================================================
+
+class BulkOrderStatusRequest(BaseModel):
+    order_ids: List[str]
+    status: str
+
+
+@app.post("/api/orders/bulk-status")
+async def bulk_update_order_status(payload: BulkOrderStatusRequest, db: Session = Depends(get_db)):
+    valid_statuses = ["pending", "confirmed", "dispatched", "delivered", "cancelled"]
+    st = payload.status.lower()
+    if st not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid status.")
+
+    updated_orders = []
+    for oid in payload.order_ids:
+        order = db.query(OrderModel).filter(OrderModel.order_id == oid).first()
+        if order:
+            order.status = st
+            updated_orders.append(order.to_dict())
+
+    db.commit()
+
+    # Broadcast event via SSE for live admin dashboards
+    for od in updated_orders:
+        await broadcast_order_event("order_status_updated", od)
+
+    return {
+        "success": True,
+        "updatedCount": len(updated_orders),
+        "status": st,
+    }
+
+
+# ==============================================================================
+# 10. ORDER INVOICE DATA API (/api/orders/{order_id}/invoice)
+# ==============================================================================
+
+@app.get("/api/orders/{order_id}/invoice")
+def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
+    order = db.query(OrderModel).filter(OrderModel.order_id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found.")
+
+    o_dict = order.to_dict()
+    items = o_dict.get("items", [])
+
+    # Calculate GST breakdown (Pharma GST: 5% = 2.5% CGST + 2.5% SGST)
+    taxable_subtotal = round(order.subtotal / 1.05, 2)
+    cgst_total = round((order.subtotal - taxable_subtotal) / 2.0, 2)
+    sgst_total = cgst_total
+
+    invoice_data = {
+        "invoiceNumber": f"INV-{order.order_id}",
+        "invoiceDate": order.created_at.strftime("%d %b %Y"),
+        "company": {
+            "name": "Dhruv Pharma Chemist & Druggist",
+            "tagline": "Authentic Healthcare & 100% Genuine Medicines",
+            "address": "Opp. Civil Hospital, Main Road, Nandurbar – 425412 (MH)",
+            "phone": "+91 9503500725",
+            "email": "orders@dhruvpharma.com",
+            "gstin": "27AABCD1234F1Z5",
+            "drugLicense": "MH-NDB-20B-184920 / 21B-184921",
+            "fssai": "11521045000123",
+        },
+        "order": o_dict,
+        "items": items,
+        "taxSummary": {
+            "taxableValue": taxable_subtotal,
+            "cgst": cgst_total,
+            "sgst": sgst_total,
+            "totalGst": round(cgst_total + sgst_total, 2),
+        },
+        "subtotal": order.subtotal,
+        "deliveryFee": order.delivery_fee,
+        "discount": order.discount,
+        "totalAmount": order.total_amount,
+        "paymentMethod": order.payment_method,
+        "paymentStatus": order.payment_status,
+    }
+
+    return invoice_data
+
+
+# ==============================================================================
+# 11. ADMIN SALES REPORTS & ANALYTICS (/api/admin/sales-report)
+# ==============================================================================
+
+@app.get("/api/admin/sales-report")
+def get_sales_report(db: Session = Depends(get_db)):
+    orders = db.query(OrderModel).all()
+
+    total_revenue = sum(o.total_amount for o in orders if o.status != "cancelled")
+    total_orders = len(orders)
+    delivered_orders = len([o for o in orders if o.status == "delivered"])
+    cancelled_orders = len([o for o in orders if o.status == "cancelled"])
+    avg_order_value = round(total_revenue / max(1, (total_orders - cancelled_orders)), 2)
+
+    # Payment breakdown
+    payment_methods = {}
+    for o in orders:
+        pm = o.payment_method or "COD"
+        payment_methods[pm] = payment_methods.get(pm, 0) + 1
+
+    # District breakdown
+    district_sales = {}
+    for o in orders:
+        d = o.district or "Nandurbar"
+        district_sales[d] = district_sales.get(d, 0) + o.total_amount
+
+    # Top selling medicines from parsed items
+    item_sales = {}
+    for o in orders:
+        if o.status == "cancelled":
+            continue
+        try:
+            items = json.loads(o.items)
+            for it in items:
+                name = it.get("name", "Unknown")
+                qty = it.get("qty", 1)
+                item_sales[name] = item_sales.get(name, 0) + qty
+        except Exception:
+            pass
+
+    top_selling = sorted(
+        [{"name": k, "unitsSold": v} for k, v in item_sales.items()],
+        key=lambda x: x["unitsSold"],
+        reverse=True
+    )[:8]
+
+    # Daily revenue
+    from collections import defaultdict
+    daily_revenue = defaultdict(float)
+    for o in orders:
+        if o.status != "cancelled" and o.created_at:
+            day_str = o.created_at.strftime("%d %b")
+            daily_revenue[day_str] += o.total_amount
+
+    daily_chart = [{"date": k, "revenue": round(v, 2)} for k, v in daily_revenue.items()][-7:]
+
+    return {
+        "totalRevenue": round(total_revenue, 2),
+        "totalOrders": total_orders,
+        "deliveredOrders": delivered_orders,
+        "cancelledOrders": cancelled_orders,
+        "averageOrderValue": avg_order_value,
+        "paymentMethods": payment_methods,
+        "districtSales": {k: round(v, 2) for k, v in district_sales.items()},
+        "topSelling": top_selling,
+        "dailyRevenue": daily_chart,
+    }

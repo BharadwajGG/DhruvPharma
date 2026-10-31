@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG9" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fdf4ff"/>
+    </radialGradient>
+    <filter id="packDropShadow9" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#831843" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG9)"/>
+
+  <!-- Telma 40 Glenmark Pack Shot -->
+  <g filter="url(#packDropShadow9)" transform="translate(65, 55)">
+    <rect x="0" y="0" width="270" height="290" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+
+    <!-- Glenmark Magenta Wave -->
+    <rect x="0" y="0" width="270" height="18" rx="8" fill="#be185d"/>
+    <text x="25" y="45" font-family="sans-serif" font-size="11" font-weight="800" fill="#9d174d" letter-spacing="1">GLENMARK</text>
+
+    <!-- Rx Badge -->
+    <rect x="215" y="32" width="35" height="20" rx="4" fill="#fce7f3" stroke="#fbcfe8"/>
+    <text x="232" y="46" font-family="sans-serif" font-size="10" font-weight="800" fill="#9d174d" text-anchor="middle">Rx</text>
+
+    <!-- Main Name -->
+    <text x="25" y="95" font-family="sans-serif" font-size="28" font-weight="900" fill="#831843">Telma 40</text>
+    <text x="25" y="118" font-family="sans-serif" font-size="12" font-weight="700" fill="#475569">Telmisartan Tablets IP 40 mg</text>
+
+    <!-- Glenmark Wave Graphic -->
+    <path d="M 25 140 Q 135 170 245 130" stroke="#be185d" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+    <!-- Detail Box -->
+    <rect x="25" y="160" width="220" height="70" rx="8" fill="#fdf2f8" stroke="#fbcfe8"/>
+    <text x="35" y="180" font-family="sans-serif" font-size="9.5" font-weight="700" fill="#831843">For Treatment of Hypertension</text>
+    <text x="35" y="198" font-family="sans-serif" font-size="9" fill="#475569">• 24-Hour Blood Pressure Control</text>
+    <text x="35" y="214" font-family="sans-serif" font-size="9" fill="#475569">• 30 Tablets (2 x 15 Strips Alu-Alu)</text>
+
+    <!-- Bottom Strip Indicator -->
+    <g transform="translate(25, 245)">
+      <rect x="0" y="0" width="220" height="30" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <circle cx="30" cy="15" r="8" fill="#ffffff" stroke="#94a3b8"/>
+      <circle cx="65" cy="15" r="8" fill="#ffffff" stroke="#94a3b8"/>
+      <circle cx="100" cy="15" r="8" fill="#ffffff" stroke="#94a3b8"/>
+      <circle cx="135" cy="15" r="8" fill="#ffffff" stroke="#94a3b8"/>
+      <text x="175" y="19" font-family="sans-serif" font-size="9" font-weight="800" fill="#831843">ALU-ALU</text>
+    </g>
+  </g>
+</svg>

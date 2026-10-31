@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
 import { useWishlist } from '../context/WishlistContext'
+import { useDelivery } from '../context/DeliveryContext'
 import {
     ShoppingCart,
     Plus,
@@ -50,28 +51,70 @@ export default function CartPage() {
 
     const { rxFileInputRef } = { rxFileInputRef: useRef(null) }
     const { addToWishlist } = useWishlist()
+    const { selectedLocation, checkPincode, serviceableAreas, setLocationByPincode } = useDelivery()
 
     // Flow Step: 'cart' (Review Items) or 'checkout' (Enter Details)
     const [step, setStep] = useState('cart')
 
-    // Checkout Form State
+    // Checkout Form State (defaults to user's selected delivery location)
     const [formData, setFormData] = useState({
         customerName: currentUser?.displayName || '',
         phone: '',
         email: currentUser?.email || '',
-        district: 'Pune',
+        district: selectedLocation?.district || 'Nandurbar',
+        areaName: selectedLocation?.name || 'Nandurbar',
         address: '',
-        pincode: '',
+        pincode: selectedLocation?.pincode || '425412',
         paymentMethod: 'COD', // 'COD' | 'UPI_QR' | 'CASHFREE'
         notes: '',
     })
 
+    // Keep form in sync when user changes selected delivery location
+    useEffect(() => {
+        if (selectedLocation) {
+            setFormData((prev) => ({
+                ...prev,
+                pincode: prev.pincode || selectedLocation.pincode,
+                areaName: prev.areaName || selectedLocation.name,
+                district: prev.district || selectedLocation.district,
+            }))
+        }
+    }, [selectedLocation])
+
     const [rxFile, setRxFile] = useState(null)
     const [coupon, setCoupon] = useState('')
     const [couponApplied, setCouponApplied] = useState(false)
+    const [couponDiscount, setCouponDiscount] = useState(0)
+    const [couponMsg, setCouponMsg] = useState('')
+    const [isValidatingCoupon, setIsValidatingCoupon] = useState(false)
+    const [savedAddresses, setSavedAddresses] = useState([])
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [orderSuccess, setOrderSuccess] = useState(null)
     const [formErrors, setFormErrors] = useState({})
+
+    // Load saved addresses on mount
+    useEffect(() => {
+        const storedAddrs = localStorage.getItem('dhruv_saved_addresses')
+        if (storedAddrs) {
+            try {
+                const parsed = JSON.parse(storedAddrs)
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setSavedAddresses(parsed)
+                    const def = parsed.find((a) => a.isDefault) || parsed[0]
+                    if (def && !formData.address) {
+                        setFormData((prev) => ({
+                            ...prev,
+                            address: def.address,
+                            pincode: def.pincode,
+                            district: def.district || prev.district,
+                            areaName: def.areaName || prev.areaName,
+                        }))
+                        setLocationByPincode(def.pincode)
+                    }
+                }
+            } catch (e) {}
+        }
+    }, [])
 
     // Payment Gateway & UPI QR Modals State
     const [upiModalOpen, setUpiModalOpen] = useState(false)
@@ -88,15 +131,51 @@ export default function CartPage() {
         setTimeout(() => setToastMessage(''), 3000)
     }
 
-    const handleApplyCoupon = () => {
-        if (coupon.trim().toUpperCase() === 'DHRUV5') {
-            setCouponApplied(true)
-        } else {
-            alert('Invalid coupon. Try "DHRUV5" for 5% off.')
+    const handleApplyCoupon = async () => {
+        const cleanCode = coupon.trim().toUpperCase()
+        if (!cleanCode) return
+        setIsValidatingCoupon(true)
+        setCouponMsg('')
+
+        try {
+            const res = await fetch('http://localhost:8000/api/coupons/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: cleanCode,
+                    subtotal: subtotal,
+                }),
+            })
+            const data = await res.json()
+            if (data.valid) {
+                setCouponApplied(true)
+                setCouponDiscount(data.discount)
+                setCouponMsg(data.message)
+            } else {
+                setCouponApplied(false)
+                setCouponDiscount(0)
+                setCouponMsg(data.message || 'Invalid coupon code.')
+            }
+        } catch (e) {
+            if (cleanCode === 'DHRUV10') {
+                const disc = Math.round(subtotal * 0.1)
+                setCouponApplied(true)
+                setCouponDiscount(disc)
+                setCouponMsg(`Coupon DHRUV10 applied! Saved ₹${disc}`)
+            } else if (cleanCode === 'WELCOME50') {
+                const disc = Math.min(50, subtotal)
+                setCouponApplied(true)
+                setCouponDiscount(disc)
+                setCouponMsg(`Coupon WELCOME50 applied! Saved ₹${disc}`)
+            } else {
+                setCouponMsg('Invalid coupon. Try DHRUV10 or WELCOME50.')
+            }
+        } finally {
+            setIsValidatingCoupon(false)
         }
     }
 
-    const discountAmount = couponApplied ? Math.round(subtotal * 0.05) : 0
+    const discountAmount = couponApplied ? couponDiscount : 0
     const finalPayable = Math.max(0, totalAmount - discountAmount)
 
     // Form Validation
@@ -105,7 +184,16 @@ export default function CartPage() {
         if (!formData.customerName.trim()) errors.customerName = 'Patient / Customer name is required'
         if (!formData.phone.trim() || formData.phone.length < 10) errors.phone = 'Valid 10-digit phone number is required'
         if (!formData.address.trim()) errors.address = 'Full delivery address is required'
-        if (!formData.district.trim()) errors.district = 'Select your Maharashtra delivery district'
+        
+        // Strict PIN code validation against the 7 authorized areas
+        const cleanPin = (formData.pincode || '').trim()
+        const matchedArea = checkPincode(cleanPin)
+        if (!cleanPin) {
+            errors.pincode = '6-digit PIN code is required'
+        } else if (!matchedArea) {
+            errors.pincode = 'Delivery available only to: Nandurbar (425412), Shahada (425409), Taloda (425413), Nijampur (424305), Akkalkuwa (425415), Shirpur (424405) & Sakri (424304).'
+        }
+
         if (hasRxItem && !rxFile) {
             errors.rxFile = "Doctor's prescription photo or PDF is required for this order"
         }
@@ -295,7 +383,7 @@ export default function CartPage() {
                         </div>
                         <p className="text-xs text-blue-700">Amount: <strong className="text-gray-900">₹{order.amount || order.totalAmount}</strong> ({order.paymentMethod})</p>
                         <p className="text-xs text-blue-700">Delivery Address: <span className="font-medium text-gray-800">{order.address}, {order.district}</span></p>
-                        <p className="text-xs text-blue-700">Estimated Delivery: <strong className="text-green-700">{order.expectedDelivery || '2–4 Hours (Doorstep)'}</strong></p>
+                        <p className="text-xs text-blue-700">Estimated Delivery: <strong className="text-green-700">{order.expectedDelivery || 'Expected in 3–4 Days'}</strong></p>
                     </div>
 
                     {orderSuccess.whatsappMessage && (
@@ -541,21 +629,50 @@ export default function CartPage() {
                                 </div>
 
                                 {/* Coupon Input */}
-                                <div className="flex gap-2 pt-2 border-t border-gray-100">
-                                    <input
-                                        type="text"
-                                        placeholder="Coupon (e.g. DHRUV5)"
-                                        value={coupon}
-                                        onChange={(e) => setCoupon(e.target.value)}
-                                        className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-blue-500 uppercase font-mono"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleApplyCoupon}
-                                        className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold text-xs px-3.5 py-2 rounded-xl transition-colors"
-                                    >
-                                        Apply
-                                    </button>
+                                <div className="pt-2 border-t border-gray-100">
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="Coupon (e.g. DHRUV10)"
+                                            value={coupon}
+                                            onChange={(e) => setCoupon(e.target.value)}
+                                            className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-blue-500 uppercase font-mono"
+                                        />
+                                        <button
+                                            type="button"
+                                            disabled={isValidatingCoupon || !coupon.trim()}
+                                            onClick={handleApplyCoupon}
+                                            className="bg-slate-900 hover:bg-slate-800 disabled:bg-gray-200 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                                        >
+                                            {isValidatingCoupon ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
+                                            <span>Apply</span>
+                                        </button>
+                                    </div>
+
+                                    {couponMsg && (
+                                        <p className={`text-[11px] mt-1.5 font-medium ${couponApplied ? 'text-emerald-700' : 'text-red-500'}`}>
+                                            {couponMsg}
+                                        </p>
+                                    )}
+
+                                    {!couponApplied && (
+                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setCoupon('DHRUV10')}
+                                                className="text-[10px] font-mono bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-0.5 rounded border border-blue-200 cursor-pointer"
+                                            >
+                                                🏷️ DHRUV10 (10% OFF)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setCoupon('WELCOME50')}
+                                                className="text-[10px] font-mono bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
+                                            >
+                                                🎁 WELCOME50 (₹50 OFF)
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Proceed to Checkout Button */}
@@ -616,6 +733,49 @@ export default function CartPage() {
                                 </div>
                             )}
 
+                            {/* Saved Delivery Addresses Quick Selector */}
+                            {savedAddresses.length > 0 && (
+                                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 mb-2">
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <p className="text-[11px] font-bold text-emerald-950 flex items-center gap-1.5">
+                                            <MapPin size={12} className="text-emerald-600" />
+                                            <span>Deliver to a Saved Address:</span>
+                                        </p>
+                                        <Link to="/profile" className="text-[10px] text-emerald-700 font-bold hover:underline">
+                                            Manage Addresses &rarr;
+                                        </Link>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {savedAddresses.map((addr) => {
+                                            const isSelected = formData.pincode === addr.pincode && formData.address === addr.address
+                                            return (
+                                                <button
+                                                    key={addr.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setFormData((prev) => ({
+                                                            ...prev,
+                                                            address: addr.address,
+                                                            pincode: addr.pincode,
+                                                            district: addr.district || prev.district,
+                                                            areaName: addr.areaName || prev.areaName,
+                                                        }))
+                                                        setLocationByPincode(addr.pincode)
+                                                    }}
+                                                    className={`text-left text-[11px] px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                                                        isSelected
+                                                            ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
+                                                            : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300 font-medium'
+                                                    }`}
+                                                >
+                                                    <span className="font-bold">[{addr.label}]</span> {addr.areaName || addr.district} ({addr.pincode})
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
                             <form onSubmit={handlePlaceOrder} className="space-y-3.5 text-xs">
                                 <div>
                                     <label className="block font-semibold text-gray-700 mb-1">
@@ -669,19 +829,84 @@ export default function CartPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block font-semibold text-gray-700 mb-1">
-                                        Maharashtra District <span className="text-red-500">*</span>
-                                    </label>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block font-semibold text-gray-700">
+                                            Select Delivery Hub / Town <span className="text-red-500">*</span>
+                                        </label>
+                                        <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full">
+                                            Expected in 3–4 Days
+                                        </span>
+                                    </div>
                                     <select
-                                        value={formData.district}
-                                        onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white"
+                                        value={formData.pincode}
+                                        onChange={(e) => {
+                                            const selectedPin = e.target.value
+                                            const match = checkPincode(selectedPin)
+                                            if (match) {
+                                                setFormData({
+                                                    ...formData,
+                                                    pincode: match.pincode,
+                                                    district: match.district,
+                                                    areaName: match.name,
+                                                })
+                                                setLocationByPincode(match.pincode)
+                                            }
+                                        }}
+                                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white font-medium text-xs"
                                     >
-                                        <option value="Pune">Pune</option>
-                                        <option value="Nashik">Nashik</option>
-                                        <option value="Ahmednagar">Ahmednagar</option>
-                                        <option value="Aurangabad">Aurangabad (Chhatrapati Sambhajinagar)</option>
+                                        {serviceableAreas.map((area) => (
+                                            <option key={area.pincode} value={area.pincode}>
+                                                {area.name} — PIN {area.pincode} ({area.district} Dist.) · 3–4 Days Delivery
+                                            </option>
+                                        ))}
                                     </select>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block font-semibold text-gray-700 mb-1">
+                                            PIN Code <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            maxLength={6}
+                                            placeholder="e.g. 425412"
+                                            value={formData.pincode}
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/\D/g, '')
+                                                const match = checkPincode(val)
+                                                setFormData({
+                                                    ...formData,
+                                                    pincode: val,
+                                                    district: match ? match.district : formData.district,
+                                                    areaName: match ? match.name : formData.areaName,
+                                                })
+                                                if (match) setLocationByPincode(match.pincode)
+                                            }}
+                                            className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 font-mono ${
+                                                formErrors.pincode ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                            }`}
+                                        />
+                                        {formErrors.pincode ? (
+                                            <p className="text-[11px] text-red-500 mt-1 leading-snug">{formErrors.pincode}</p>
+                                        ) : (
+                                            <p className="text-[10px] text-green-700 font-medium mt-1">
+                                                ✓ Authorized hub ({formData.areaName || 'Serviceable'}) · Expected in 3–4 Days
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="block font-semibold text-gray-700 mb-1">
+                                            District
+                                        </label>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={(formData.district || 'Nandurbar') + ' District, Maharashtra'}
+                                            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-600 outline-none"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div>

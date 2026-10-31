@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG5" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fefce8"/>
+    </radialGradient>
+    <filter id="packDropShadow5" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#854d0e" flood-opacity="0.14" />
+    </filter>
+    <linearGradient id="ciplaYellow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="40%" stop-color="#facc15"/>
+      <stop offset="100%" stop-color="#eab308"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG5)"/>
+
+  <!-- Cipladine Tube Angle Shot -->
+  <g filter="url(#packDropShadow5)" transform="translate(140, 40) rotate(15)">
+    <!-- White Screw Cap -->
+    <rect x="25" y="0" width="40" height="24" rx="4" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+    <line x1="32" y1="0" x2="32" y2="24" stroke="#94a3b8" stroke-width="1"/>
+    <line x1="45" y1="0" x2="45" y2="24" stroke="#94a3b8" stroke-width="1"/>
+    <line x1="58" y1="0" x2="58" y2="24" stroke="#94a3b8" stroke-width="1"/>
+
+    <!-- Tube Shoulder -->
+    <path d="M 20 24 L 70 24 L 85 45 L 5 45 Z" fill="#eab308" stroke="#ca8a04"/>
+
+    <!-- Main Yellow Tube Body -->
+    <rect x="5" y="45" width="80" height="220" fill="url(#ciplaYellow)" stroke="#ca8a04"/>
+
+    <!-- Brand Typography Vertical -->
+    <g transform="translate(48, 160) rotate(-90)">
+      <text x="0" y="0" font-family="sans-serif" font-size="18" font-weight="900" fill="#15803d" text-anchor="middle" letter-spacing="1">CIPLADINE</text>
+      <text x="0" y="14" font-family="sans-serif" font-size="9" font-weight="700" fill="#713f12" text-anchor="middle">POVIDONE IODINE OINTMENT USP 5% w/w</text>
+    </g>
+
+    <!-- Cipla Cross Logo at Top of Body -->
+    <circle cx="45" cy="70" r="14" fill="#ffffff"/>
+    <path d="M 40 70 L 50 70 M 45 65 L 45 75" stroke="#15803d" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Antiseptic Microbicidal Water Soluble Badge -->
+    <rect x="15" y="215" width="60" height="22" rx="4" fill="#15803d"/>
+    <text x="45" y="229" font-family="sans-serif" font-size="7.5" font-weight="800" fill="#ffffff" text-anchor="middle">ANTISEPTIC</text>
+
+    <!-- Bottom Crimped Seal -->
+    <rect x="0" y="265" width="90" height="15" rx="2" fill="#a16207" stroke="#713f12"/>
+    <line x1="5" y1="272" x2="85" y2="272" stroke="#fef08a" stroke-width="1" stroke-dasharray="2,2"/>
+  </g>
+</svg>

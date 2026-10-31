@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG19" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fff1f2"/>
+    </radialGradient>
+    <filter id="packDropShadow19" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#db2777" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG19)"/>
+
+  <!-- Skinshine Cream Tube -->
+  <g filter="url(#packDropShadow19)" transform="translate(140, 40) rotate(-12)">
+    <rect x="25" y="0" width="40" height="24" rx="4" fill="#ffffff" stroke="#cbd5e1"/>
+    <path d="M 20 24 L 70 24 L 85 45 L 5 45 Z" fill="#f43f5e"/>
+    <rect x="5" y="45" width="80" height="220" fill="#ffffff" stroke="#f43f5e" stroke-width="1.5"/>
+
+    <!-- Pink Gradient Accent -->
+    <rect x="5" y="70" width="80" height="35" fill="#f43f5e"/>
+    <text x="45" y="92" font-family="sans-serif" font-size="8" font-weight="800" fill="#ffffff" text-anchor="middle">CADILA</text>
+
+    <g transform="translate(45, 160) rotate(-90)">
+      <text x="0" y="0" font-family="sans-serif" font-size="18" font-weight="900" fill="#be123c" text-anchor="middle">SKINSHINE</text>
+      <text x="0" y="14" font-family="sans-serif" font-size="8" font-weight="700" fill="#475569" text-anchor="middle">Hydroquinone, Tretinoin Cream 15g</text>
+    </g>
+
+    <rect x="0" y="265" width="90" height="15" rx="2" fill="#e11d48"/>
+  </g>
+</svg>

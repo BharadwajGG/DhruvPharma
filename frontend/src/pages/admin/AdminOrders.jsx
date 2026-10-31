@@ -27,7 +27,9 @@ import {
     UserCheck,
     ShoppingBag,
     Loader2,
+    Printer,
 } from 'lucide-react'
+import OrderInvoiceModal from '../../components/OrderInvoiceModal'
 
 const STATUS_CONFIG = {
     pending:   { label: 'Pending Verification', style: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
@@ -38,6 +40,17 @@ const STATUS_CONFIG = {
 }
 
 const ALL_STATUSES = ['all', 'pending', 'confirmed', 'dispatched', 'delivered']
+
+const DELIVERY_HUBS = [
+    { name: 'All Hubs', pincode: 'all' },
+    { name: 'Nandurbar', pincode: '425412' },
+    { name: 'Shahada', pincode: '425409' },
+    { name: 'Taloda', pincode: '425413' },
+    { name: 'Nijampur', pincode: '424305' },
+    { name: 'Akkalkuwa', pincode: '425415' },
+    { name: 'Shirpur', pincode: '424405' },
+    { name: 'Sakri', pincode: '424304' },
+]
 
 function playChime() {
     try {
@@ -75,6 +88,7 @@ export default function AdminOrders() {
     const [orders, setOrders] = useState([])
     const [isLoading, setIsLoading] = useState(true)
     const [filter, setFilter] = useState('all')
+    const [areaFilter, setAreaFilter] = useState('all')
     const [search, setSearch] = useState('')
     const [selected, setSelected] = useState(null)
     const [soundEnabled, setSoundEnabled] = useState(true)
@@ -82,6 +96,11 @@ export default function AdminOrders() {
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
     const [editingDeliveryTimeId, setEditingDeliveryTimeId] = useState(null)
     const [tempDeliveryTime, setTempDeliveryTime] = useState('')
+
+    // ── Bulk Selection & Invoice States ──
+    const [selectedOrderIds, setSelectedOrderIds] = useState([])
+    const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState(null)
+    const [isBulkUpdating, setIsBulkUpdating] = useState(false)
 
     // ── Callbacks Queue & Phone Orders States ──
     const [callbacks, setCallbacks] = useState([])
@@ -96,9 +115,9 @@ export default function AdminOrders() {
         customerName: '',
         phone: '',
         email: '',
-        district: 'Pune',
+        district: 'Nandurbar',
+        pincode: '425412',
         address: '',
-        pincode: '',
         items: [],
         paymentMethod: 'COD',
         notes: 'Phone order taken by pharmacist',
@@ -309,6 +328,51 @@ export default function AdminOrders() {
         }
     }
 
+    // ── Bulk Order Actions ──
+    const handleBulkUpdateStatus = async (newStatus) => {
+        if (!selectedOrderIds.length) return
+        setIsBulkUpdating(true)
+        try {
+            const res = await fetch('http://localhost:8000/api/orders/bulk-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_ids: selectedOrderIds, status: newStatus }),
+            })
+            const data = await res.json()
+            if (res.ok) {
+                setOrders((prev) =>
+                    prev.map((o) => (selectedOrderIds.includes(o.id || o.orderId) ? { ...o, status: newStatus } : o))
+                )
+                const count = data.updated_count || selectedOrderIds.length
+                setSelectedOrderIds([])
+                alert(`Successfully updated ${count} orders to "${newStatus}".`)
+            } else {
+                alert(data.detail || 'Failed to update orders.')
+            }
+        } catch (err) {
+            console.error('Bulk update error:', err)
+            alert('Network error while performing bulk update.')
+        } finally {
+            setIsBulkUpdating(false)
+        }
+    }
+
+    const toggleSelectAll = () => {
+        const currentDisplayedIds = displayed.map((o) => o.id || o.orderId)
+        const allSelected = currentDisplayedIds.length > 0 && currentDisplayedIds.every((id) => selectedOrderIds.includes(id))
+        if (allSelected) {
+            setSelectedOrderIds((prev) => prev.filter((id) => !currentDisplayedIds.includes(id)))
+        } else {
+            setSelectedOrderIds((prev) => Array.from(new Set([...prev, ...currentDisplayedIds])))
+        }
+    }
+
+    const toggleSelectRow = (orderId) => {
+        setSelectedOrderIds((prev) =>
+            prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
+        )
+    }
+
     // ── Callbacks Handlers ──
     const handleUpdateCallbackStatus = async (callbackId, newStatus) => {
         try {
@@ -445,14 +509,18 @@ export default function AdminOrders() {
 
     const displayed = orders.filter((o) => {
         const matchStatus = filter === 'all' || o.status === filter
+        const matchArea = areaFilter === 'all' ||
+            (o.pincode && String(o.pincode).trim() === areaFilter) ||
+            (o.district && o.district.toLowerCase().includes(DELIVERY_HUBS.find(h => h.pincode === areaFilter)?.name.toLowerCase() || ''))
         const q = search.toLowerCase()
         const matchSearch =
             (o.patient && o.patient.toLowerCase().includes(q)) ||
             (o.customerName && o.customerName.toLowerCase().includes(q)) ||
             (o.id && o.id.toLowerCase().includes(q)) ||
             (o.phone && o.phone.toLowerCase().includes(q)) ||
-            (o.district && o.district.toLowerCase().includes(q))
-        return matchStatus && matchSearch
+            (o.district && o.district.toLowerCase().includes(q)) ||
+            (o.pincode && String(o.pincode).includes(q))
+        return matchStatus && matchArea && matchSearch
     })
 
     const totalRevenue = orders
@@ -558,33 +626,106 @@ export default function AdminOrders() {
                 </div>
 
                 {/* ── Search + Filter ── */}
-                <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="flex-1 flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all shadow-2xs">
-                        <Search size={16} className="ml-4 text-gray-400 shrink-0" />
-                        <input
-                            type="text"
-                            placeholder="Search by patient name, phone, order ID or district..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className="flex-1 px-3 py-2.5 text-xs outline-none bg-transparent"
-                        />
+                <div className="space-y-2.5">
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="flex-1 flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all shadow-2xs">
+                            <Search size={16} className="ml-4 text-gray-400 shrink-0" />
+                            <input
+                                type="text"
+                                placeholder="Search by patient name, phone, order ID, PIN code or district..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="flex-1 px-3 py-2.5 text-xs outline-none bg-transparent"
+                            />
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                            {ALL_STATUSES.map((s) => (
+                                <button
+                                    key={s}
+                                    onClick={() => setFilter(s)}
+                                    className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-semibold capitalize border transition-colors ${
+                                        filter === s
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                            : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                                    }`}
+                                >
+                                    {s === 'all' ? `All (${orders.length})` : s}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    <div className="flex gap-2 overflow-x-auto pb-1">
-                        {ALL_STATUSES.map((s) => (
+
+                    {/* ── Delivery Hub Selector Bar (Real-Time Serviceable Areas) ── */}
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs pt-1">
+                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
+                            <MapPin size={12} className="text-blue-600" />
+                            Hub Dispatch:
+                        </span>
+                        {DELIVERY_HUBS.map((hub) => (
                             <button
-                                key={s}
-                                onClick={() => setFilter(s)}
-                                className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-semibold capitalize border transition-colors ${
-                                    filter === s
-                                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                        : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                                key={hub.pincode}
+                                onClick={() => setAreaFilter(hub.pincode)}
+                                className={`shrink-0 px-2.5 py-1 rounded-lg font-medium transition-all text-xs border ${
+                                    areaFilter === hub.pincode
+                                        ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold shadow-2xs'
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
                                 }`}
                             >
-                                {s === 'all' ? `All (${orders.length})` : s}
+                                {hub.name} {hub.pincode !== 'all' && <span className="opacity-70 text-[10px]">({hub.pincode})</span>}
                             </button>
                         ))}
                     </div>
                 </div>
+
+                {/* ── Bulk Actions Toolbar ── */}
+                {selectedOrderIds.length > 0 && (
+                    <div className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white px-5 py-3 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg border border-blue-600 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center gap-3">
+                            <span className="font-bold text-xs bg-white text-blue-900 px-3 py-1 rounded-xl shadow-xs">
+                                {selectedOrderIds.length} Order{selectedOrderIds.length > 1 ? 's' : ''} Selected
+                            </span>
+                            <span className="text-xs text-blue-100 hidden md:inline">
+                                Update all selected orders at once:
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                                disabled={isBulkUpdating}
+                                onClick={() => handleBulkUpdateStatus('confirmed')}
+                                className="bg-purple-600/90 hover:bg-purple-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-purple-400/40 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                            >
+                                <Check size={12} /> Confirm
+                            </button>
+                            <button
+                                disabled={isBulkUpdating}
+                                onClick={() => handleBulkUpdateStatus('dispatched')}
+                                className="bg-orange-600/90 hover:bg-orange-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-orange-400/40 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                            >
+                                <Truck size={12} /> Dispatch
+                            </button>
+                            <button
+                                disabled={isBulkUpdating}
+                                onClick={() => handleBulkUpdateStatus('delivered')}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                            >
+                                <CheckCircle size={12} /> Deliver
+                            </button>
+                            <button
+                                disabled={isBulkUpdating}
+                                onClick={() => handleBulkUpdateStatus('cancelled')}
+                                className="bg-red-600/90 hover:bg-red-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl border border-red-400/40 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                            >
+                                <X size={12} /> Cancel
+                            </button>
+                            <button
+                                onClick={() => setSelectedOrderIds([])}
+                                className="text-xs text-blue-200 hover:text-white underline ml-2 cursor-pointer font-medium"
+                            >
+                                Clear Selection
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* ── Orders Table ── */}
                 <div className="bg-white rounded-xl border border-gray-100 shadow-xs overflow-hidden">
@@ -592,6 +733,15 @@ export default function AdminOrders() {
                         <table className="w-full text-xs text-left">
                             <thead>
                                 <tr className="bg-gray-50 border-b border-gray-100 text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+                                    <th className="py-3 px-3 text-center w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={displayed.length > 0 && displayed.every((o) => selectedOrderIds.includes(o.id || o.orderId))}
+                                            onChange={toggleSelectAll}
+                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            title="Select all displayed orders"
+                                        />
+                                    </th>
                                     <th className="py-3 px-4">Order ID</th>
                                     <th className="py-3 px-4">Patient / Customer</th>
                                     <th className="py-3 px-4">Expected Delivery Window</th>
@@ -605,15 +755,31 @@ export default function AdminOrders() {
                                     const cfg = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending
                                     const Icon = cfg.icon
                                     const isEditingThis = editingDeliveryTimeId === (o.id || o.orderId)
+                                    const isRowSelected = selectedOrderIds.includes(o.id || o.orderId)
 
                                     return (
-                                        <tr key={o.id || o.orderId} className="hover:bg-blue-50/20 transition-colors">
+                                        <tr key={o.id || o.orderId} className={`hover:bg-blue-50/20 transition-colors ${isRowSelected ? 'bg-blue-50/40' : ''}`}>
+                                            <td className="py-3.5 px-3 text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isRowSelected}
+                                                    onChange={() => toggleSelectRow(o.id || o.orderId)}
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                />
+                                            </td>
                                             <td className="py-3.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap">
                                                 {o.id || o.orderId}
                                             </td>
                                             <td className="py-3.5 px-4">
                                                 <p className="font-bold text-gray-900">{o.patient || o.customerName}</p>
-                                                <p className="text-[11px] text-gray-400 mt-0.5">{o.phone} · {o.district}</p>
+                                                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-0.5">
+                                                    <span>{o.phone}</span>
+                                                    <span>·</span>
+                                                    <span className="inline-flex items-center gap-0.5 text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.2 rounded">
+                                                        <MapPin size={10} />
+                                                        {o.district || 'Nandurbar'} {o.pincode ? `(${o.pincode})` : ''}
+                                                    </span>
+                                                </div>
                                             </td>
 
                                             {/* Expected Delivery Date/Time Control */}
@@ -624,7 +790,7 @@ export default function AdminOrders() {
                                                             type="text"
                                                             value={tempDeliveryTime}
                                                             onChange={(e) => setTempDeliveryTime(e.target.value)}
-                                                            placeholder="e.g. Tomorrow by 4:00 PM"
+                                                            placeholder="e.g. Expected in 3–4 Days"
                                                             className="px-2 py-1 border border-blue-400 rounded-lg text-xs outline-none bg-white w-48 font-medium"
                                                             autoFocus
                                                         />
@@ -646,15 +812,15 @@ export default function AdminOrders() {
                                                 ) : (
                                                     <div
                                                         onClick={() => {
-                                                            setEditingDeliveryTimeId(o.id || o.orderId)
-                                                            setTempDeliveryTime(o.expectedDelivery || 'Expected in 2–4 hours')
+                                                             setEditingDeliveryTimeId(o.id || o.orderId)
+                                                             setTempDeliveryTime(o.expectedDelivery || 'Expected in 3–4 Days')
                                                         }}
                                                         className="group cursor-pointer flex items-center gap-1.5 text-gray-700 hover:text-blue-600"
                                                         title="Click to edit expected delivery time"
                                                     >
                                                         <Truck size={13} className="text-gray-400 group-hover:text-blue-600 shrink-0" />
                                                         <span className="font-medium underline decoration-dotted decoration-gray-300">
-                                                            {o.expectedDelivery || 'Expected in 2–4 hours'}
+                                                            {o.expectedDelivery || 'Expected in 3–4 Days'}
                                                         </span>
                                                     </div>
                                                 )}
@@ -671,19 +837,26 @@ export default function AdminOrders() {
                                                 </span>
                                             </td>
 
-                                            {/* Action Buttons: Inspect & Delete */}
+                                            {/* Action Buttons: Inspect, Invoice & Delete */}
                                             <td className="py-3.5 px-4 text-center whitespace-nowrap">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                     <button
                                                         onClick={() => setSelected(o)}
-                                                        className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                                                        className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold px-2 py-1 rounded-lg transition-colors cursor-pointer"
                                                         title="Inspect full order"
                                                     >
                                                         <Eye size={12} /> Inspect
                                                     </button>
                                                     <button
+                                                        onClick={() => setSelectedInvoiceOrder(o)}
+                                                        className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                                                        title="View / Print Tax Invoice"
+                                                    >
+                                                        <Printer size={12} /> Bill
+                                                    </button>
+                                                    <button
                                                         onClick={() => handleDeleteOrder(o.id || o.orderId)}
-                                                        className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                                                        className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
                                                         title="Delete order"
                                                     >
                                                         <Trash2 size={13} />
@@ -696,7 +869,7 @@ export default function AdminOrders() {
 
                                 {displayed.length === 0 && (
                                     <tr>
-                                        <td colSpan={6} className="text-center py-12 text-gray-400">
+                                        <td colSpan={7} className="text-center py-12 text-gray-400">
                                             <Package size={36} className="mx-auto mb-2 text-gray-200" />
                                             <p className="font-semibold text-gray-600 text-sm">No orders found.</p>
                                         </td>
@@ -722,6 +895,13 @@ export default function AdminOrders() {
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setSelectedInvoiceOrder(selected)}
+                                        className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                        title="View / Print GST Invoice"
+                                    >
+                                        <Printer size={13} /> Tax Invoice
+                                    </button>
                                     <button
                                         onClick={() => handleDeleteOrder(selected.id || selected.orderId)}
                                         className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
@@ -791,10 +971,10 @@ export default function AdminOrders() {
                                     <div className="flex items-center gap-2">
                                         <input
                                             type="text"
-                                            defaultValue={selected.expectedDelivery || 'Expected in 2–4 hours'}
+                                            defaultValue={selected.expectedDelivery || 'Expected in 3–4 Days'}
                                             id="modalDeliveryTimeInput"
                                             className="flex-1 px-3 py-1.5 border border-blue-300 rounded-lg text-xs outline-none bg-white font-medium"
-                                            placeholder="e.g. Expected by tomorrow, 4:00 PM"
+                                            placeholder="e.g. Expected in 3–4 Days"
                                         />
                                         <button
                                             onClick={() => {
@@ -807,7 +987,7 @@ export default function AdminOrders() {
                                         </button>
                                     </div>
                                     <div className="flex flex-wrap gap-1.5 pt-1">
-                                        {['Within 2 hours', 'Today by 6:00 PM', 'Tomorrow by 11:00 AM', 'Tomorrow by 4:00 PM'].map((preset) => (
+                                        {['Expected in 3–4 Days', 'Expected in 2–3 Days', 'Expected Tomorrow', 'Express Delivery (1–2 Days)'].map((preset) => (
                                             <button
                                                 key={preset}
                                                 type="button"
@@ -1126,26 +1306,35 @@ export default function AdminOrders() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block font-semibold text-gray-700 mb-1">District</label>
+                                            <label className="block font-semibold text-gray-700 mb-1">Serviceable Hub / Area</label>
                                             <select
                                                 value={phoneOrderForm.district}
-                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, district: e.target.value })}
-                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                                onChange={(e) => {
+                                                    const chosenArea = e.target.value
+                                                    const hub = DELIVERY_HUBS.find(h => h.name === chosenArea)
+                                                    setPhoneOrderForm({
+                                                        ...phoneOrderForm,
+                                                        district: chosenArea,
+                                                        pincode: hub && hub.pincode !== 'all' ? hub.pincode : phoneOrderForm.pincode
+                                                    })
+                                                }}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 font-medium"
                                             >
-                                                <option value="Pune">Pune</option>
-                                                <option value="Nashik">Nashik</option>
-                                                <option value="Ahmednagar">Ahmednagar</option>
-                                                <option value="Aurangabad">Aurangabad (Chhatrapati Sambhajinagar)</option>
+                                                {DELIVERY_HUBS.filter(h => h.pincode !== 'all').map((hub) => (
+                                                    <option key={hub.pincode} value={hub.name}>
+                                                        {hub.name} ({hub.pincode})
+                                                    </option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div>
                                             <label className="block font-semibold text-gray-700 mb-1">PIN Code</label>
                                             <input
                                                 type="text"
-                                                placeholder="e.g. 411045"
+                                                placeholder="e.g. 425412"
                                                 value={phoneOrderForm.pincode}
                                                 onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, pincode: e.target.value })}
-                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 font-mono"
                                             />
                                         </div>
                                         <div className="sm:col-span-2">
@@ -1290,6 +1479,13 @@ export default function AdminOrders() {
                         </div>
                     </div>
                 )}
+
+                {/* ── Official GST Tax Invoice Modal ── */}
+                <OrderInvoiceModal
+                    order={selectedInvoiceOrder}
+                    isOpen={Boolean(selectedInvoiceOrder)}
+                    onClose={() => setSelectedInvoiceOrder(null)}
+                />
             </div>
         </AdminLayout>
     )

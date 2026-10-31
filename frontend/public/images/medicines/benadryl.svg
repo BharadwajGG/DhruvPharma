@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG14" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fff1f2"/>
+    </radialGradient>
+    <filter id="packDropShadow14" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#9f1239" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG14)"/>
+
+  <!-- Benadryl Syrup Bottle -->
+  <g filter="url(#packDropShadow14)" transform="translate(125, 45)">
+    <!-- White Cap with Measure Cup -->
+    <rect x="40" y="0" width="70" height="35" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+    <line x1="50" y1="20" x2="65" y2="20" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="75" y="23" font-family="sans-serif" font-size="7" font-weight="700" fill="#64748b">10 ml</text>
+
+    <!-- Amber Bottle Neck -->
+    <rect x="52" y="35" width="46" height="25" fill="#78350f"/>
+
+    <!-- Amber Bottle Body -->
+    <rect x="15" y="60" width="120" height="240" rx="20" fill="#92400e" stroke="#78350f" stroke-width="2"/>
+
+    <!-- Red Benadryl Label -->
+    <rect x="22" y="90" width="106" height="175" rx="8" fill="#be123c"/>
+    <text x="75" y="125" font-family="sans-serif" font-size="16" font-weight="900" fill="#ffffff" text-anchor="middle">Benadryl</text>
+    <text x="75" y="145" font-family="sans-serif" font-size="9" font-weight="800" fill="#fecdd3" text-anchor="middle">COUGH FORMULA</text>
+    <line x1="35" y1="155" x2="115" y2="155" stroke="#fda4af" stroke-width="1"/>
+    <text x="75" y="175" font-family="sans-serif" font-size="8" font-weight="700" fill="#ffffff" text-anchor="middle">Diphenhydramine HCl</text>
+    <text x="75" y="190" font-family="sans-serif" font-size="8" font-weight="700" fill="#ffffff" text-anchor="middle">Ammonium Chloride</text>
+    <text x="75" y="240" font-family="sans-serif" font-size="10" font-weight="900" fill="#fef08a" text-anchor="middle">100 ml</text>
+  </g>
+</svg>

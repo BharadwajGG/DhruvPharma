@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgG8" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fefce8"/>
+    </radialGradient>
+    <filter id="packDropShadow8" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#713f12" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <rect width="400" height="400" fill="url(#bgG8)"/>
+
+  <!-- Becosules / B-Complex Capsule Blister -->
+  <g filter="url(#packDropShadow8)" transform="translate(60, 50)">
+    <rect x="0" y="0" width="280" height="300" rx="16" fill="#1e293b" stroke="#0f172a" stroke-width="2"/>
+
+    <!-- Golden Header -->
+    <rect x="0" y="0" width="280" height="58" rx="16" fill="#ca8a04"/>
+    <text x="20" y="24" font-family="sans-serif" font-size="10" font-weight="800" fill="#fef08a" letter-spacing="1">PFIZER / CADILA</text>
+    <text x="20" y="48" font-family="sans-serif" font-size="22" font-weight="900" fill="#ffffff" letter-spacing="0.5">BECOSULES</text>
+    <text x="190" y="44" font-family="sans-serif" font-size="10" font-weight="800" fill="#fef08a">20 CAPSULES</text>
+
+    <!-- Subtitle -->
+    <rect x="0" y="58" width="280" height="24" fill="#334155"/>
+    <text x="20" y="74" font-family="sans-serif" font-size="9.5" font-weight="700" fill="#fef08a">B-Complex Forte with Vitamin C &amp; Zinc Capsules</text>
+
+    <!-- 2x3 Two-Tone Maroon & Yellow Capsules -->
+    <g transform="translate(70, 125)">
+      <rect x="-16" y="-30" width="32" height="30" rx="16" fill="#881337"/>
+      <rect x="-16" y="0" width="32" height="30" rx="16" fill="#eab308"/>
+      <text x="0" y="-12" font-family="sans-serif" font-size="8" font-weight="900" fill="#ffffff" text-anchor="middle">B</text>
+      <text x="0" y="18" font-family="sans-serif" font-size="8" font-weight="900" fill="#713f12" text-anchor="middle">Z</text>
+    </g>
+    <g transform="translate(210, 125)">
+      <rect x="-16" y="-30" width="32" height="30" rx="16" fill="#881337"/>
+      <rect x="-16" y="0" width="32" height="30" rx="16" fill="#eab308"/>
+      <text x="0" y="-12" font-family="sans-serif" font-size="8" font-weight="900" fill="#ffffff" text-anchor="middle">B</text>
+      <text x="0" y="18" font-family="sans-serif" font-size="8" font-weight="900" fill="#713f12" text-anchor="middle">Z</text>
+    </g>
+
+    <g transform="translate(70, 205)">
+      <rect x="-16" y="-30" width="32" height="30" rx="16" fill="#881337"/>
+      <rect x="-16" y="0" width="32" height="30" rx="16" fill="#eab308"/>
+      <text x="0" y="-12" font-family="sans-serif" font-size="8" font-weight="900" fill="#ffffff" text-anchor="middle">B</text>
+      <text x="0" y="18" font-family="sans-serif" font-size="8" font-weight="900" fill="#713f12" text-anchor="middle">Z</text>
+    </g>
+    <g transform="translate(210, 205)">
+      <rect x="-16" y="-30" width="32" height="30" rx="16" fill="#881337"/>
+      <rect x="-16" y="0" width="32" height="30" rx="16" fill="#eab308"/>
+      <text x="0" y="-12" font-family="sans-serif" font-size="8" font-weight="900" fill="#ffffff" text-anchor="middle">B</text>
+      <text x="0" y="18" font-family="sans-serif" font-size="8" font-weight="900" fill="#713f12" text-anchor="middle">Z</text>
+    </g>
+
+    <!-- Bottom -->
+    <rect x="0" y="265" width="280" height="35" rx="14" fill="#0f172a"/>
+    <text x="140" y="287" font-family="sans-serif" font-size="10" font-weight="800" fill="#ca8a04" text-anchor="middle">FOR MOUTH ULCERS &amp; ENERGY RECOVERY</text>
+  </g>
+</svg>

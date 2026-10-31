@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
+import OrderInvoiceModal from '../components/OrderInvoiceModal'
 import {
     Package,
     Clock,
@@ -20,6 +21,8 @@ import {
     Lock,
     User,
     Loader2,
+    Printer,
+    Download,
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
@@ -66,6 +69,7 @@ export default function MyOrdersPage() {
     // Cancellation & Reorder States
     const [cancelModalOpen, setCancelModalOpen] = useState(false)
     const [selectedOrderToCancel, setSelectedOrderToCancel] = useState(null)
+    const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState(null)
     const [cancelReason, setCancelReason] = useState('Changed my mind / Placed by mistake')
     const [isCancelling, setIsCancelling] = useState(false)
     const [toastMessage, setToastMessage] = useState('')
@@ -426,14 +430,63 @@ export default function MyOrdersPage() {
                                             <span>
                                                 Delivery Window:{' '}
                                                 <span className="text-blue-700 font-extrabold">
-                                                    {order.expectedDelivery || 'Expected in 2–4 hours'}
+                                                    {order.expectedDelivery || 'Expected in 3–4 Days'}
                                                 </span>
                                             </span>
                                         </div>
                                         <span className="text-[11px] text-blue-800 font-medium">
-                                            Agent: <strong>{order.agent || order.deliveryAgent || 'Sanjay Kumar (Dhruv Express)'}</strong>
+                                            Delivery Hub: <strong>{order.district || 'Nandurbar'} ({order.pincode || '425412'})</strong>
                                         </span>
                                     </div>
+
+                                    {/* 4-Step Animated Fulfillment Tracker */}
+                                    {order.status !== 'cancelled' && (
+                                        <div className="px-5 py-4 bg-white border-b border-gray-100">
+                                            <div className="relative flex items-center justify-between max-w-lg mx-auto">
+                                                {/* Background line */}
+                                                <div className="absolute top-3 left-4 right-4 h-1 bg-gray-200 -translate-y-1/2 z-0" />
+                                                {/* Filled progress line */}
+                                                <div
+                                                    className="absolute top-3 left-4 h-1 bg-blue-600 -translate-y-1/2 z-0 transition-all duration-700 ease-out"
+                                                    style={{ width: `${Math.min(100, Math.max(0, ((cfg.step - 1) / 3) * 100))}%` }}
+                                                />
+
+                                                {[
+                                                    { step: 1, label: 'Order Placed' },
+                                                    { step: 2, label: 'Confirmed' },
+                                                    { step: 3, label: 'Dispatched' },
+                                                    { step: 4, label: 'Delivered' },
+                                                ].map((s) => {
+                                                    const isCompleted = cfg.step >= s.step
+                                                    const isCurrent = cfg.step === s.step
+                                                    return (
+                                                        <div key={s.step} className="relative z-10 flex flex-col items-center">
+                                                            <div
+                                                                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                                                                    isCurrent
+                                                                        ? 'bg-blue-600 text-white ring-4 ring-blue-100 shadow-md animate-subtle-pulse'
+                                                                        : isCompleted
+                                                                        ? 'bg-blue-600 text-white'
+                                                                        : 'bg-gray-100 text-gray-400 border border-gray-200'
+                                                                }`}
+                                                            >
+                                                                {isCompleted ? '✓' : s.step}
+                                                            </div>
+                                                            <span className={`text-[10px] mt-1 font-semibold whitespace-nowrap ${
+                                                                isCurrent
+                                                                    ? 'text-blue-700 font-bold'
+                                                                    : isCompleted
+                                                                    ? 'text-gray-700'
+                                                                    : 'text-gray-400'
+                                                            }`}>
+                                                                {s.label}
+                                                            </span>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Order Body: Purchased Medicines List */}
                                     <div className="p-5 space-y-4">
@@ -494,9 +547,9 @@ export default function MyOrdersPage() {
                                             </div>
                                         </div>
 
-                                        {/* Card Actions: Reorder & Cancel Order */}
+                                        {/* Card Actions: Reorder, Invoice & Cancel Order */}
                                         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100">
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <button
                                                     type="button"
                                                     onClick={() => handleReorder(order)}
@@ -504,6 +557,15 @@ export default function MyOrdersPage() {
                                                 >
                                                     <RefreshCw size={13} />
                                                     <span>Reorder Items ({items.length})</span>
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedInvoiceOrder(order)}
+                                                    className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
+                                                >
+                                                    <Printer size={13} />
+                                                    <span>Tax Invoice</span>
                                                 </button>
 
                                                 <Link
@@ -624,6 +686,14 @@ export default function MyOrdersPage() {
                             </div>
                         </div>
                     </div>
+                )}
+                {/* Tax Invoice Modal */}
+                {selectedInvoiceOrder && (
+                    <OrderInvoiceModal
+                        order={selectedInvoiceOrder}
+                        isOpen={Boolean(selectedInvoiceOrder)}
+                        onClose={() => setSelectedInvoiceOrder(null)}
+                    />
                 )}
             </div>
         </div>

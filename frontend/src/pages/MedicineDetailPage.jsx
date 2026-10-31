@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useWishlist } from '../context/WishlistContext'
+import { useDelivery } from '../context/DeliveryContext'
+import MedicineImage from '../components/MedicineImage'
 import {
     Star,
     ShoppingCart,
@@ -25,13 +27,35 @@ export default function MedicineDetailPage() {
     const { id } = useParams()
     const { addToCart } = useCart()
     const { isInWishlist, toggleWishlist } = useWishlist()
+    const { selectedLocation } = useDelivery()
 
     const [medicine, setMedicine] = useState(null)
     const [isLoading, setIsLoading] = useState(true)
     const [qty, setQty] = useState(1)
     const [justAdded, setJustAdded] = useState(false)
 
+    // Customer Reviews & Rating State
+    const [reviews, setReviews] = useState([])
+    const [avgRating, setAvgRating] = useState(4.8)
+    const [reviewName, setReviewName] = useState('')
+    const [reviewRating, setReviewRating] = useState(5)
+    const [reviewComment, setReviewComment] = useState('')
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+    const [reviewSuccess, setReviewSuccess] = useState('')
+
+    const fetchReviews = async () => {
+        try {
+            const res = await fetch(`http://localhost:8000/api/medicines/${id}/reviews`)
+            if (res.ok) {
+                const data = await res.json()
+                setReviews(data.reviews || [])
+                if (data.averageRating) setAvgRating(data.averageRating)
+            }
+        } catch (e) {}
+    }
+
     useEffect(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
         const fetchMedicineDetail = async () => {
             setIsLoading(true)
             try {
@@ -71,6 +95,7 @@ export default function MedicineDetailPage() {
 
         if (id) {
             fetchMedicineDetail()
+            fetchReviews()
         }
     }, [id])
 
@@ -79,6 +104,32 @@ export default function MedicineDetailPage() {
         addToCart(medicine, qty)
         setJustAdded(true)
         setTimeout(() => setJustAdded(false), 2000)
+    }
+
+    const handleAddReview = async (e) => {
+        e.preventDefault()
+        if (!reviewComment.trim()) return
+        setIsSubmittingReview(true)
+        try {
+            const res = await fetch(`http://localhost:8000/api/medicines/${id}/reviews`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_name: reviewName.trim() || 'Verified Customer',
+                    rating: reviewRating,
+                    comment: reviewComment.trim(),
+                }),
+            })
+            if (res.ok) {
+                setReviewComment('')
+                setReviewSuccess('Thank you! Your verified rating was submitted.')
+                fetchReviews()
+                setTimeout(() => setReviewSuccess(''), 3000)
+            }
+        } catch (e) {
+        } finally {
+            setIsSubmittingReview(false)
+        }
     }
 
     if (isLoading) {
@@ -128,16 +179,16 @@ export default function MedicineDetailPage() {
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8 mb-6">
                     <div className="flex flex-col sm:flex-row gap-8">
 
-                        {/* Image */}
-                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl w-full sm:w-72 h-64 flex items-center justify-center shrink-0 relative">
-                            <Pill size={84} className="text-blue-200" />
+                        {/* Image with Tier 2 Pack Shot & Tier 1 Vector Fallback */}
+                        <div className="rounded-2xl border border-gray-100 bg-white w-full sm:w-72 h-64 sm:h-72 flex items-center justify-center shrink-0 relative overflow-hidden shadow-xs">
+                            <MedicineImage medicine={medicine} aspectRatio="detail" className="rounded-2xl" />
                             {discount > 0 && (
-                                <span className="absolute top-3 left-3 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-xs">
+                                <span className="absolute top-3 left-3 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-xs z-10">
                                     {discount}% OFF
                                 </span>
                             )}
                             {requiresRx && (
-                                <span className="absolute top-3 right-3 bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full border border-red-200 flex items-center gap-1">
+                                <span className="absolute top-3 right-3 bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full border border-red-200 flex items-center gap-1 z-10">
                                     <AlertCircle size={12} /> Rx Required
                                 </span>
                             )}
@@ -284,8 +335,8 @@ export default function MedicineDetailPage() {
                                 <span className="flex items-center gap-1.5">
                                     <Shield size={13} className="text-green-600" /> 100% Genuine Pharmacy Stock
                                 </span>
-                                <span className="flex items-center gap-1.5">
-                                    <Truck size={13} className="text-blue-600" /> Express 2–4 Hr Delivery in Maharashtra
+                                <span className="flex items-center gap-1.5 font-medium text-gray-700">
+                                    <Truck size={13} className="text-blue-600" /> Delivery in 3–4 Days to <strong className="text-blue-700">{selectedLocation.name} ({selectedLocation.pincode})</strong>
                                 </span>
                                 <span className="flex items-center gap-1.5">
                                     <RotateCcw size={13} className="text-purple-600" /> Temperature Regulated
@@ -356,6 +407,133 @@ export default function MedicineDetailPage() {
                                 </li>
                             ))}
                         </ul>
+                    </div>
+                </div>
+
+                {/* ── Customer Reviews & Ratings Section ── */}
+                <div className="mt-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                <span>Verified Customer Ratings</span>
+                                <span className="bg-yellow-50 text-amber-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-yellow-200 flex items-center gap-1">
+                                    <Star size={12} className="fill-amber-400 text-amber-400" /> {avgRating} / 5
+                                </span>
+                            </h2>
+                            <p className="text-xs text-gray-500 mt-1">
+                                Read verified feedback from patients across Nandurbar and Maharashtra.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-6">
+                        {/* Reviews List */}
+                        <div className="lg:col-span-2 space-y-4">
+                            {reviews.length === 0 ? (
+                                <div className="text-center py-8 bg-gray-50 rounded-xl p-4">
+                                    <Star size={32} className="mx-auto text-gray-300 mb-2" />
+                                    <p className="text-xs text-gray-500">No customer reviews yet. Be the first to rate this medicine!</p>
+                                </div>
+                            ) : (
+                                reviews.map((rev) => (
+                                    <div key={rev.id} className="p-4 rounded-xl bg-gray-50/70 border border-gray-100">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold text-[10px] flex items-center justify-center">
+                                                    {(rev.userName || 'P').charAt(0)}
+                                                </div>
+                                                <span className="font-bold text-xs text-gray-800">{rev.userName}</span>
+                                                <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.2 rounded border border-emerald-200">
+                                                    Verified Purchase
+                                                </span>
+                                            </div>
+                                            <span className="text-[10px] text-gray-400">{rev.createdAt}</span>
+                                        </div>
+                                        <div className="flex gap-0.5 mb-2">
+                                            {[...Array(5)].map((_, i) => (
+                                                <Star
+                                                    key={i}
+                                                    size={12}
+                                                    className={i < rev.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}
+                                                />
+                                            ))}
+                                        </div>
+                                        <p className="text-xs text-gray-600 leading-relaxed">{rev.comment}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        {/* Submit Review Box */}
+                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 h-fit">
+                            <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2">
+                                Rate This Medicine
+                            </h3>
+                            <p className="text-[11px] text-slate-500 mb-3">
+                                Share your dosage experience and packaging feedback.
+                            </p>
+
+                            {reviewSuccess && (
+                                <div className="mb-3 p-2.5 bg-emerald-50 text-emerald-800 rounded-xl text-xs border border-emerald-200 flex items-center gap-1.5">
+                                    <Check size={13} className="text-emerald-600 shrink-0" />
+                                    <span>{reviewSuccess}</span>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleAddReview} className="space-y-3">
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Your Rating</label>
+                                    <div className="flex items-center gap-1">
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                            <button
+                                                type="button"
+                                                key={star}
+                                                onClick={() => setReviewRating(star)}
+                                                className="p-1 hover:scale-110 transition-transform cursor-pointer"
+                                            >
+                                                <Star
+                                                    size={20}
+                                                    className={star <= reviewRating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}
+                                                />
+                                            </button>
+                                        ))}
+                                        <span className="text-xs font-bold text-slate-600 ml-2">{reviewRating} / 5</span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Your Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. S. Deshmukh"
+                                        value={reviewName}
+                                        onChange={(e) => setReviewName(e.target.value)}
+                                        className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-xs bg-white outline-none focus:border-blue-500"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Your Review</label>
+                                    <textarea
+                                        rows={3}
+                                        placeholder="Explain packaging, expiry date, efficacy, or delivery speed..."
+                                        value={reviewComment}
+                                        onChange={(e) => setReviewComment(e.target.value)}
+                                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-white outline-none focus:border-blue-500"
+                                        required
+                                    />
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={isSubmittingReview}
+                                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                >
+                                    {isSubmittingReview ? <Loader2 size={13} className="animate-spin" /> : <Star size={13} />}
+                                    <span>Submit Verified Review</span>
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>

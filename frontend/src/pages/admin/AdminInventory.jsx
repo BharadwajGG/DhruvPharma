@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
+import MedicineImage from '../../components/MedicineImage'
 import {
     Search,
     Upload,
@@ -648,11 +649,18 @@ export default function AdminInventory() {
 
                                         {/* Name & Composition */}
                                         <td className="py-3 px-4">
-                                            <p className="font-bold text-gray-900 text-xs">{item.name}</p>
-                                            <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1" title={item.salt}>
-                                                {item.salt || <span className="italic text-gray-400">No composition listed</span>}
-                                            </p>
-                                            <p className="text-[10px] text-gray-400 mt-0.5">{item.manufacturer}</p>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-lg border border-gray-200 overflow-hidden shrink-0 bg-white shadow-2xs flex items-center justify-center">
+                                                    <MedicineImage medicine={item} aspectRatio="thumb" showGenuineBadge={false} className="w-full h-full" />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="font-bold text-gray-900 text-xs truncate" title={item.name}>{item.name}</p>
+                                                    <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1" title={item.salt}>
+                                                        {item.salt || <span className="italic text-gray-400">No composition listed</span>}
+                                                    </p>
+                                                    <p className="text-[10px] text-gray-400 mt-0.5">{item.manufacturer}</p>
+                                                </div>
+                                            </div>
                                         </td>
 
                                         {/* Interactive Category Dropdown Pill */}
