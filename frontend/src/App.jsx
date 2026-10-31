@@ -7,6 +7,7 @@ import { AdminRoute, PrescriptionQueueRoute } from './components/ProtectedRoute'
 // Customer Components
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
+import OrderViaCallWidget from './components/OrderViaCallWidget'
 import HomePage from './pages/HomePage'
 import MedicineStorePage from './pages/MedicineStorePage'
 import MedicineDetailPage from './pages/MedicineDetailPage'
@@ -36,6 +37,7 @@ function CustomerLayout() {
             <main className="flex-1">
                 <Outlet />
             </main>
+            <OrderViaCallWidget />
             <Footer />
         </div>
     )

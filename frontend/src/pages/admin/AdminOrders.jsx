@@ -8,6 +8,8 @@ import {
     Clock,
     MapPin,
     Phone,
+    PhoneCall,
+    Plus,
     Package,
     X,
     Filter,
@@ -21,6 +23,10 @@ import {
     Trash2,
     Check,
     Calendar,
+    Pill,
+    UserCheck,
+    ShoppingBag,
+    Loader2,
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
@@ -77,6 +83,29 @@ export default function AdminOrders() {
     const [editingDeliveryTimeId, setEditingDeliveryTimeId] = useState(null)
     const [tempDeliveryTime, setTempDeliveryTime] = useState('')
 
+    // ── Callbacks Queue & Phone Orders States ──
+    const [callbacks, setCallbacks] = useState([])
+    const [callbacksModalOpen, setCallbacksModalOpen] = useState(false)
+    const [phoneOrderModalOpen, setPhoneOrderModalOpen] = useState(false)
+    const [selectedCallbackForOrder, setSelectedCallbackForOrder] = useState(null)
+    const [medicinesCatalog, setMedicinesCatalog] = useState([])
+    const [isSubmittingPhoneOrder, setIsSubmittingPhoneOrder] = useState(false)
+
+    // Phone Order Form
+    const [phoneOrderForm, setPhoneOrderForm] = useState({
+        customerName: '',
+        phone: '',
+        email: '',
+        district: 'Pune',
+        address: '',
+        pincode: '',
+        items: [],
+        paymentMethod: 'COD',
+        notes: 'Phone order taken by pharmacist',
+    })
+    const [selectedMedId, setSelectedMedId] = useState('')
+    const [selectedMedQty, setSelectedMedQty] = useState(1)
+
     // Fetch initial orders list
     const fetchOrders = async () => {
         setIsLoading(true)
@@ -93,8 +122,36 @@ export default function AdminOrders() {
         }
     }
 
+    // Fetch callback requests
+    const fetchCallbacks = async () => {
+        try {
+            const res = await fetch('http://localhost:8000/api/callbacks')
+            if (res.ok) {
+                const data = await res.json()
+                setCallbacks(data)
+            }
+        } catch (err) {
+            console.error('Failed to fetch callbacks:', err)
+        }
+    }
+
+    // Fetch medicines catalog for phone order search
+    const fetchMedicines = async () => {
+        try {
+            const res = await fetch('http://localhost:8000/api/medicines')
+            if (res.ok) {
+                const data = await res.json()
+                setMedicinesCatalog(data)
+            }
+        } catch (err) {
+            console.error('Failed to fetch medicines catalog:', err)
+        }
+    }
+
     useEffect(() => {
         fetchOrders()
+        fetchCallbacks()
+        fetchMedicines()
     }, [])
 
     // Real-Time Server-Sent Events (SSE) Listener
@@ -108,6 +165,7 @@ export default function AdminOrders() {
                 try {
                     const parsed = JSON.parse(event.data)
 
+                    // 1. New Order
                     if (parsed.type === 'new_order' && parsed.order) {
                         const newOrder = parsed.order
                         setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)])
@@ -123,6 +181,31 @@ export default function AdminOrders() {
                         setTimeout(() => setLiveNotification(null), 6000)
                     }
 
+                    // 2. New Callback Request from Customer (Order via Call)
+                    if (parsed.type === 'new_callback' && parsed.order) {
+                        const newCb = parsed.order
+                        setCallbacks((prev) => [newCb, ...prev.filter((c) => c.id !== newCb.id)])
+
+                        if (soundEnabled) playChime()
+
+                        setLiveNotification({
+                            id: newCb.requestId || 'Callback',
+                            name: `📞 Callback: ${newCb.customerName}`,
+                            amount: newCb.phone,
+                        })
+
+                        setTimeout(() => setLiveNotification(null), 7000)
+                    }
+
+                    // 3. Callback Updated
+                    if (parsed.type === 'callback_update' && parsed.order) {
+                        const updatedCb = parsed.order
+                        setCallbacks((prev) =>
+                            prev.map((c) => (c.id === updatedCb.id ? updatedCb : c))
+                        )
+                    }
+
+                    // 4. Order Status Update
                     if (parsed.type === 'status_update' && parsed.order) {
                         const updated = parsed.order
                         setOrders((prev) =>
@@ -133,6 +216,7 @@ export default function AdminOrders() {
                         }
                     }
 
+                    // 5. Order Deleted
                     if (parsed.type === 'order_deleted' && parsed.orderId) {
                         setOrders((prev) =>
                             prev.filter((o) => o.id !== parsed.orderId && o.orderId !== parsed.orderId)
@@ -225,6 +309,140 @@ export default function AdminOrders() {
         }
     }
 
+    // ── Callbacks Handlers ──
+    const handleUpdateCallbackStatus = async (callbackId, newStatus) => {
+        try {
+            setCallbacks((prev) =>
+                prev.map((c) => (c.id === callbackId ? { ...c, status: newStatus } : c))
+            )
+            await fetch(`http://localhost:8000/api/callbacks/${callbackId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus }),
+            })
+        } catch (err) {
+            console.error('Failed to update callback status:', err)
+        }
+    }
+
+    // Open Phone Order Modal (optionally linked to a callback)
+    const handleOpenPhoneOrder = (callbackItem = null) => {
+        setSelectedCallbackForOrder(callbackItem)
+        setPhoneOrderForm({
+            customerName: callbackItem ? callbackItem.customerName : '',
+            phone: callbackItem ? callbackItem.phone : '',
+            email: '',
+            district: callbackItem ? callbackItem.district : 'Pune',
+            address: '',
+            pincode: '',
+            items: [],
+            paymentMethod: 'COD',
+            notes: callbackItem
+                ? `Phone order from Callback #${callbackItem.requestId}. Notes: ${callbackItem.medicinesNeeded || 'None'}`
+                : 'Phone order taken on call by pharmacist',
+        })
+        setSelectedMedId('')
+        setSelectedMedQty(1)
+        if (callbackItem) {
+            setCallbacksModalOpen(false)
+        }
+        setPhoneOrderModalOpen(true)
+    }
+
+    // Add item to phone order
+    const handleAddItemToPhoneOrder = () => {
+        if (!selectedMedId) return
+        const med = medicinesCatalog.find((m) => String(m.id) === String(selectedMedId))
+        if (!med) return
+
+        const qty = Math.max(1, parseInt(selectedMedQty) || 1)
+        const price = med.sellingPrice || med.price || 0
+
+        setPhoneOrderForm((prev) => {
+            const existingIdx = prev.items.findIndex((i) => i.id === med.id)
+            let updatedItems
+            if (existingIdx >= 0) {
+                updatedItems = [...prev.items]
+                updatedItems[existingIdx].qty += qty
+            } else {
+                updatedItems = [
+                    ...prev.items,
+                    {
+                        id: med.id,
+                        name: med.name,
+                        price: Number(price),
+                        qty,
+                        salt: med.salt || '',
+                        brand: med.brand || med.manufacturer || 'Generic',
+                    },
+                ]
+            }
+            return { ...prev, items: updatedItems }
+        })
+        setSelectedMedId('')
+        setSelectedMedQty(1)
+    }
+
+    // Remove item from phone order
+    const handleRemoveItemFromPhoneOrder = (index) => {
+        setPhoneOrderForm((prev) => ({
+            ...prev,
+            items: prev.items.filter((_, i) => i !== index),
+        }))
+    }
+
+    // Submit Phone Order
+    const handleSubmitPhoneOrder = async (e) => {
+        e.preventDefault()
+        if (!phoneOrderForm.customerName.trim() || !phoneOrderForm.phone.trim() || !phoneOrderForm.address.trim()) {
+            alert('Customer name, 10-digit phone, and delivery address are required.')
+            return
+        }
+        if (phoneOrderForm.items.length === 0) {
+            alert('Please add at least one medicine item to this phone order.')
+            return
+        }
+
+        setIsSubmittingPhoneOrder(true)
+        try {
+            const payload = {
+                customerName: phoneOrderForm.customerName.trim(),
+                phone: phoneOrderForm.phone.trim(),
+                email: phoneOrderForm.email.trim(),
+                district: phoneOrderForm.district,
+                address: phoneOrderForm.address.trim(),
+                pincode: phoneOrderForm.pincode.trim(),
+                items: phoneOrderForm.items,
+                paymentMethod: phoneOrderForm.paymentMethod,
+                notes: phoneOrderForm.notes.trim(),
+                callbackId: selectedCallbackForOrder ? selectedCallbackForOrder.id : null,
+            }
+
+            const res = await fetch('http://localhost:8000/api/admin/orders/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            const result = await res.json()
+            if (!res.ok) {
+                throw new Error(result.detail || 'Failed to place phone order.')
+            }
+
+            setPhoneOrderModalOpen(false)
+            setSelectedCallbackForOrder(null)
+            fetchOrders()
+            fetchCallbacks()
+            alert(result.message || 'Phone order created successfully!')
+        } catch (err) {
+            console.error('Phone order error:', err)
+            alert(err.message || 'Failed to create phone order.')
+        } finally {
+            setIsSubmittingPhoneOrder(false)
+        }
+    }
+
+    const pendingCallbacksCount = callbacks.filter((c) => c.status === 'pending').length
+
     const displayed = orders.filter((o) => {
         const matchStatus = filter === 'all' || o.status === filter
         const q = search.toLowerCase()
@@ -285,7 +503,32 @@ export default function AdminOrders() {
                         </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Callbacks Queue Button */}
+                        <button
+                            type="button"
+                            onClick={() => setCallbacksModalOpen(true)}
+                            className="relative bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <PhoneCall size={14} className="text-blue-600" />
+                            <span>Callbacks Queue</span>
+                            {pendingCallbacksCount > 0 && (
+                                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                                    {pendingCallbacksCount}
+                                </span>
+                            )}
+                        </button>
+
+                        {/* Take Phone Order Button */}
+                        <button
+                            type="button"
+                            onClick={() => handleOpenPhoneOrder()}
+                            className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <Plus size={14} />
+                            <span>+ Take Phone Order</span>
+                        </button>
+
                         {/* Audio Toggle */}
                         <button
                             onClick={() => setSoundEnabled(!soundEnabled)}
@@ -302,8 +545,11 @@ export default function AdminOrders() {
 
                         {/* Refresh */}
                         <button
-                            onClick={fetchOrders}
-                            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                            onClick={() => {
+                                fetchOrders()
+                                fetchCallbacks()
+                            }}
+                            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                         >
                             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
                             Refresh
@@ -676,6 +922,371 @@ export default function AdminOrders() {
                                     <span className="text-blue-700 text-base">₹{selected.amount || selected.totalAmount}</span>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 1. CALLBACK REQUESTS QUEUE MODAL ── */}
+                {callbacksModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 border border-gray-100 shadow-2xl relative max-h-[90vh] flex flex-col">
+                            {/* Close */}
+                            <button
+                                type="button"
+                                onClick={() => setCallbacksModalOpen(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100">
+                                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                                    <PhoneCall size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-gray-900 text-base">Customer Callback Requests</h3>
+                                    <p className="text-xs text-gray-500">
+                                        Customers requesting a call to place or verify medicine orders
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Queue List */}
+                            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+                                {callbacks.length === 0 ? (
+                                    <div className="text-center py-12 space-y-2">
+                                        <Phone size={32} className="text-gray-300 mx-auto" />
+                                        <p className="font-bold text-gray-700">No callback requests yet</p>
+                                        <p className="text-gray-400 text-xs">When customers tap "Order via Call" and request a callback, they will appear here in real time.</p>
+                                    </div>
+                                ) : (
+                                    callbacks.map((cb) => (
+                                        <div
+                                            key={cb.id}
+                                            className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60 hover:bg-white hover:border-blue-200 transition-all space-y-2.5"
+                                        >
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-[11px]">
+                                                        {cb.requestId}
+                                                    </span>
+                                                    <span className="font-bold text-gray-900 text-sm">{cb.customerName}</span>
+                                                    <span className="text-gray-400">·</span>
+                                                    <span className="text-gray-600 font-medium">{cb.district}</span>
+                                                </div>
+
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                                    cb.status === 'pending'
+                                                        ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+                                                        : cb.status === 'called'
+                                                        ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                                        : cb.status === 'converted'
+                                                        ? 'bg-green-100 text-green-800 border border-green-200'
+                                                        : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                    {cb.status}
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-gray-600">
+                                                <p>📞 Phone: <strong className="text-gray-900 font-mono">{cb.phone}</strong></p>
+                                                <p>🕒 Preferred Time: <strong className="text-gray-800">{cb.preferredTime}</strong></p>
+                                                {cb.medicinesNeeded && (
+                                                    <p className="sm:col-span-2 bg-white p-2 rounded-xl border border-gray-100 text-gray-700">
+                                                        💊 Request / Medicines: <em>"{cb.medicinesNeeded}"</em>
+                                                    </p>
+                                                )}
+                                                {cb.prescriptionFile && (
+                                                    <p className="sm:col-span-2">
+                                                        📎 Rx Attachment:{' '}
+                                                        <a
+                                                            href={`http://localhost:8000${cb.prescriptionFile}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-blue-600 underline font-semibold"
+                                                        >
+                                                            View Uploaded Prescription &rarr;
+                                                        </a>
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            {/* Action Buttons */}
+                                            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                                                <div className="flex items-center gap-2">
+                                                    <a
+                                                        href={`tel:${cb.phone}`}
+                                                        className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-2xs"
+                                                    >
+                                                        <PhoneCall size={12} />
+                                                        <span>Call Now</span>
+                                                    </a>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenPhoneOrder(cb)}
+                                                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-2xs cursor-pointer"
+                                                    >
+                                                        <Plus size={12} />
+                                                        <span>Take Order for Caller</span>
+                                                    </button>
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 text-[11px]">
+                                                    {cb.status === 'pending' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleUpdateCallbackStatus(cb.id, 'called')}
+                                                            className="text-gray-500 hover:text-blue-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors"
+                                                        >
+                                                            Mark as Called
+                                                        </button>
+                                                    )}
+                                                    {cb.status !== 'cancelled' && cb.status !== 'converted' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleUpdateCallbackStatus(cb.id, 'cancelled')}
+                                                            className="text-gray-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                                                        >
+                                                            Dismiss
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 2. "TAKE PHONE ORDER" PHARMACIST POS MODAL ── */}
+                {phoneOrderModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 border border-gray-100 shadow-2xl relative max-h-[92vh] flex flex-col">
+                            {/* Close */}
+                            <button
+                                type="button"
+                                onClick={() => setPhoneOrderModalOpen(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100">
+                                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
+                                    <Plus size={20} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-bold text-gray-900 text-base">Take Phone Order</h3>
+                                        {selectedCallbackForOrder && (
+                                            <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                                From {selectedCallbackForOrder.requestId}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-gray-500">
+                                        Create and confirm a manual order directly while speaking with a customer on the phone
+                                    </p>
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleSubmitPhoneOrder} className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+                                {/* Customer Info */}
+                                <div className="bg-gray-50/70 p-3.5 rounded-2xl border border-gray-100 space-y-3">
+                                    <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider">
+                                        1. Caller / Patient Details
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Customer Name <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Caller full name"
+                                                value={phoneOrderForm.customerName}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, customerName: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Phone Number <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="tel"
+                                                placeholder="10-digit mobile number"
+                                                value={phoneOrderForm.phone}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, phone: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 font-mono"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">District</label>
+                                            <select
+                                                value={phoneOrderForm.district}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, district: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                            >
+                                                <option value="Pune">Pune</option>
+                                                <option value="Nashik">Nashik</option>
+                                                <option value="Ahmednagar">Ahmednagar</option>
+                                                <option value="Aurangabad">Aurangabad (Chhatrapati Sambhajinagar)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">PIN Code</label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. 411045"
+                                                value={phoneOrderForm.pincode}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, pincode: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Delivery Address <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Flat/House no., Street, Area, Landmark"
+                                                value={phoneOrderForm.address}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, address: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Medicine Selector */}
+                                <div className="bg-gray-50/70 p-3.5 rounded-2xl border border-gray-100 space-y-3">
+                                    <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider">
+                                        2. Select Medicines
+                                    </p>
+                                    <div className="flex gap-2 items-center">
+                                        <select
+                                            value={selectedMedId}
+                                            onChange={(e) => setSelectedMedId(e.target.value)}
+                                            className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 text-xs"
+                                        >
+                                            <option value="">-- Choose Medicine from Inventory --</option>
+                                            {medicinesCatalog.map((med) => (
+                                                <option key={med.id} value={med.id}>
+                                                    {med.name} (₹{med.sellingPrice || med.price}) · Stock: {med.stock_quantity ?? 'Available'}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={selectedMedQty}
+                                            onChange={(e) => setSelectedMedQty(e.target.value)}
+                                            className="w-16 px-2.5 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 text-xs text-center font-bold"
+                                            placeholder="Qty"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={handleAddItemToPhoneOrder}
+                                            disabled={!selectedMedId}
+                                            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold px-3 py-2 rounded-xl transition-colors shrink-0 cursor-pointer"
+                                        >
+                                            + Add
+                                        </button>
+                                    </div>
+
+                                    {/* Added items list */}
+                                    {phoneOrderForm.items.length > 0 ? (
+                                        <div className="border border-gray-200 rounded-xl bg-white overflow-hidden divide-y divide-gray-100">
+                                            {phoneOrderForm.items.map((it, idx) => (
+                                                <div key={idx} className="p-2.5 flex items-center justify-between gap-3 text-xs">
+                                                    <div>
+                                                        <p className="font-bold text-gray-900">{it.name}</p>
+                                                        <p className="text-[10px] text-gray-400">Qty: {it.qty} × ₹{it.price}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="font-bold text-gray-900">
+                                                            ₹{(it.price * it.qty).toFixed(2)}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveItemFromPhoneOrder(idx)}
+                                                            className="text-red-500 hover:text-red-700 p-1 rounded"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-gray-400 text-[11px] italic text-center py-2">
+                                            No medicines added yet. Choose a medicine above and tap "+ Add".
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* Payment & Total */}
+                                <div className="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-100 space-y-2">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-blue-900 font-semibold">Payment Mode:</span>
+                                        <select
+                                            value={phoneOrderForm.paymentMethod}
+                                            onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, paymentMethod: e.target.value })}
+                                            className="px-2.5 py-1 bg-white border border-blue-200 rounded-lg text-xs font-semibold"
+                                        >
+                                            <option value="COD">💵 Cash on Delivery (COD)</option>
+                                            <option value="UPI">📱 UPI on Delivery</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Price breakdown */}
+                                    {(() => {
+                                        const sub = phoneOrderForm.items.reduce((sum, i) => sum + (i.price * i.qty), 0)
+                                        const fee = sub === 0 ? 0 : sub >= 300 ? 0 : 40
+                                        const total = sub + fee
+                                        return (
+                                            <div className="pt-2 border-t border-blue-200/60 space-y-1">
+                                                <div className="flex justify-between text-blue-800 text-[11px]">
+                                                    <span>Subtotal:</span>
+                                                    <span>₹{sub.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between text-blue-800 text-[11px]">
+                                                    <span>Delivery Fee:</span>
+                                                    <span>{fee === 0 ? 'FREE (Above ₹300)' : `₹${fee}`}</span>
+                                                </div>
+                                                <div className="flex justify-between text-sm font-bold text-blue-950 pt-1 border-t border-blue-200/80">
+                                                    <span>Total Payable:</span>
+                                                    <span className="text-base text-blue-700">₹{total.toFixed(2)}</span>
+                                                </div>
+                                            </div>
+                                        )
+                                    })()}
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={isSubmittingPhoneOrder}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 text-xs cursor-pointer"
+                                >
+                                    {isSubmittingPhoneOrder ? (
+                                        <>
+                                            <Loader2 size={15} className="animate-spin" />
+                                            <span>Creating Order...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <CheckCircle size={15} />
+                                            <span>Confirm &amp; Place Phone Order</span>
+                                        </>
+                                    )}
+                                </button>
+                            </form>
                         </div>
                     </div>
                 )}

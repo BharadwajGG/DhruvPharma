@@ -87,11 +87,15 @@ export default function Navbar() {
             <div className="bg-blue-700 text-white text-sm py-2">
                 <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
                     <div className="flex items-center gap-5">
-                        <span className="flex items-center gap-1.5">
+                        <a
+                            href="tel:+919503500725"
+                            className="flex items-center gap-1.5 hover:text-blue-100 transition-colors font-medium text-xs sm:text-sm"
+                            title="Call Dhruv Pharma to Order"
+                        >
                             <Phone size={13} />
-                            +91 98765 43210
-                        </span>
-                        <span className="flex items-center gap-1.5">
+                            <span>Order via Call: <strong>+91 95035 00725</strong></span>
+                        </a>
+                        <span className="hidden md:flex items-center gap-1.5 text-xs text-blue-100">
                             <MapPin size={13} />
                             Serving: Pune · Nashik · Ahmednagar · Aurangabad
                         </span>

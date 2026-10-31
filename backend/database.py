@@ -163,6 +163,38 @@ class OrderModel(Base):
         }
 
 
+class CallbackRequestModel(Base):
+    __tablename__ = "callback_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_name = Column(String(200), nullable=False)
+    customer_phone = Column(String(50), nullable=False, index=True)
+    district = Column(String(100), nullable=False, default="Pune")
+    preferred_time = Column(String(100), default="Immediate (within 15 mins)")
+    medicines_needed = Column(Text, nullable=True, default="")
+    prescription_file = Column(String(300), nullable=True, default="")
+    status = Column(String(50), default="pending", index=True)  # pending, called, converted, cancelled
+    admin_notes = Column(Text, nullable=True, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "requestId": f"CB-{self.id:04d}",
+            "customerName": self.customer_name,
+            "phone": self.customer_phone,
+            "district": self.district,
+            "preferredTime": self.preferred_time or "Immediate (within 15 mins)",
+            "medicinesNeeded": self.medicines_needed or "",
+            "prescriptionFile": self.prescription_file or "",
+            "status": self.status,
+            "adminNotes": self.admin_notes or "",
+            "createdAt": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
+            "timeAgo": "Recent",
+        }
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

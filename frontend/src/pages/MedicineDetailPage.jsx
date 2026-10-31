@@ -6,6 +6,7 @@ import {
     Star,
     ShoppingCart,
     Heart,
+    Phone,
     Upload,
     Shield,
     Truck,
@@ -256,6 +257,26 @@ export default function MedicineDetailPage() {
                                         <Upload size={14} /> Upload Doctor's Rx
                                     </Link>
                                 )}
+                            </div>
+
+                            {/* Order via Phone Call Banner */}
+                            <div className="bg-blue-50/80 border border-blue-200/80 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs mb-6">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
+                                        <Phone size={15} />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-blue-950">Prefer to order this medicine by phone?</p>
+                                        <p className="text-[11px] text-blue-700">Speak directly with our pharmacist for dosage advice &amp; doorstep delivery.</p>
+                                    </div>
+                                </div>
+                                <a
+                                    href="tel:+919503500725"
+                                    className="inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition-colors shadow-2xs shrink-0"
+                                >
+                                    <Phone size={13} />
+                                    <span>Call: 95035 00725</span>
+                                </a>
                             </div>
 
                             {/* Trust Icons */}

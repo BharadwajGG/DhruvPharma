@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel
+from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel, CallbackRequestModel
 from categorizer import categorize_medicine, calculate_selling_price, clean_text
 from notifications import (
     generate_clinical_info,
@@ -594,6 +594,212 @@ async def confirm_upi_qr_payment(payload: UPIQRConfirmRequest, db: Session = Dep
     return {
         "success": True,
         "message": f"UPI Payment for Order #{order.order_id} confirmed successfully.",
+        "order": order_dict,
+    }
+
+
+# ==============================================================================
+# CALLBACK REQUESTS & PHONE ORDER MANAGEMENT (ORDER VIA CALL)
+# ==============================================================================
+
+@app.post("/api/callbacks")
+async def create_callback_request(
+    customerName: str = Form(...),
+    phone: str = Form(...),
+    district: Optional[str] = Form("Pune"),
+    preferredTime: Optional[str] = Form("Immediate (within 15 mins)"),
+    medicinesNeeded: Optional[str] = Form(""),
+    prescriptionFile: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Submits a new 'Order via Call' callback request from a customer.
+    Broadcasts real-time alert to all connected admin portals.
+    """
+    clean_phone = re.sub(r"\D", "", phone)
+    if len(clean_phone) < 10:
+        raise HTTPException(status_code=400, detail="Please enter a valid 10-digit mobile number.")
+
+    rx_url = ""
+    if prescriptionFile and prescriptionFile.filename:
+        timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original_name = os.path.basename(prescriptionFile.filename)
+        unique_filename = f"cb_rx_{timestamp_prefix}_{uuid.uuid4().hex[:6]}_{original_name}"
+        destination_path = os.path.join(ORDERS_PRESCRIPTIONS_DIR, unique_filename)
+        with open(destination_path, "wb") as buffer:
+            shutil.copyfileobj(prescriptionFile.file, buffer)
+        rx_url = f"/uploads/order_prescriptions/{unique_filename}"
+
+    new_cb = CallbackRequestModel(
+        customer_name=customerName.strip(),
+        customer_phone=phone.strip(),
+        district=(district or "Pune").strip(),
+        preferred_time=(preferredTime or "Immediate (within 15 mins)").strip(),
+        medicines_needed=(medicinesNeeded or "").strip(),
+        prescription_file=rx_url,
+        status="pending",
+        created_at=datetime.utcnow(),
+    )
+    db.add(new_cb)
+    db.commit()
+    db.refresh(new_cb)
+
+    cb_dict = new_cb.to_dict()
+    await broadcast_order_event("new_callback", cb_dict)
+
+    return {
+        "success": True,
+        "message": f"Callback request registered! Our registered pharmacist will call you at {phone} within 15 minutes.",
+        "callback": cb_dict,
+    }
+
+
+@app.get("/api/callbacks")
+def get_callbacks(
+    status: Optional[str] = Query("all"),
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    query = db.query(CallbackRequestModel)
+    if status and status != "all":
+        query = query.filter(CallbackRequestModel.status == status.lower())
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                CallbackRequestModel.customer_name.ilike(term),
+                CallbackRequestModel.customer_phone.ilike(term),
+                CallbackRequestModel.district.ilike(term),
+                CallbackRequestModel.medicines_needed.ilike(term),
+            )
+        )
+    callbacks = query.order_by(CallbackRequestModel.id.desc()).all()
+    return [c.to_dict() for c in callbacks]
+
+
+class CallbackStatusUpdate(BaseModel):
+    status: str  # pending, called, converted, cancelled
+    adminNotes: Optional[str] = None
+
+
+@app.patch("/api/callbacks/{callback_id}/status")
+async def update_callback_status(
+    callback_id: int,
+    payload: CallbackStatusUpdate,
+    db: Session = Depends(get_db),
+):
+    cb = db.query(CallbackRequestModel).filter(CallbackRequestModel.id == callback_id).first()
+    if not cb:
+        raise HTTPException(status_code=404, detail="Callback request not found")
+
+    cb.status = payload.status.lower()
+    if payload.adminNotes is not None:
+        cb.admin_notes = payload.adminNotes.strip()
+    db.commit()
+    db.refresh(cb)
+
+    cb_dict = cb.to_dict()
+    await broadcast_order_event("callback_update", cb_dict)
+    return {"success": True, "callback": cb_dict}
+
+
+class AdminManualOrderItem(BaseModel):
+    id: Optional[int] = None
+    name: str
+    price: float
+    qty: int = 1
+    salt: Optional[str] = ""
+    brand: Optional[str] = ""
+
+
+class AdminManualOrderCreate(BaseModel):
+    customerName: str
+    phone: str
+    email: Optional[str] = ""
+    district: str = "Pune"
+    address: str
+    pincode: Optional[str] = ""
+    items: List[AdminManualOrderItem]
+    paymentMethod: str = "COD"  # COD, UPI on Delivery
+    notes: Optional[str] = "Phone Order (taken by pharmacist on call)"
+    callbackId: Optional[int] = None
+
+
+@app.post("/api/admin/orders/create")
+async def create_admin_phone_order(
+    payload: AdminManualOrderCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Allows pharmacist to place an order on behalf of a phone/callback customer.
+    Auto-decrements stock, assigns DP sequential order ID, broadcasts new_order event,
+    and if linked to a callback, marks it as 'converted'.
+    """
+    if not payload.items or len(payload.items) == 0:
+        raise HTTPException(status_code=400, detail="Order must contain at least one medicine item.")
+
+    # Generate sequential Order ID
+    max_order = db.query(OrderModel).order_by(OrderModel.id.desc()).first()
+    next_num = (max_order.id + 140) if max_order else 101
+    while db.query(OrderModel).filter(OrderModel.order_id == f"DP-{next_num}").first():
+        next_num += 1
+    order_id = f"DP-{next_num}"
+
+    # Calculate financials
+    subtotal = sum(i.price * i.qty for i in payload.items)
+    delivery_fee = 0.0 if subtotal >= 300 else 40.0
+    total_amount = subtotal + delivery_fee
+
+    items_list = [i.dict() for i in payload.items]
+
+    # Decrement stock
+    for item in payload.items:
+        if item.id:
+            med = db.query(MedicineModel).filter(MedicineModel.id == item.id).first()
+            if med and med.stock_quantity is not None:
+                med.stock_quantity = max(0, med.stock_quantity - item.qty)
+
+    new_order = OrderModel(
+        order_id=order_id,
+        customer_name=payload.customerName.strip(),
+        customer_phone=payload.phone.strip(),
+        customer_email=(payload.email or "").strip(),
+        user_id="",
+        district=payload.district.strip(),
+        address=payload.address.strip(),
+        pincode=(payload.pincode or "").strip(),
+        items=json.dumps(items_list),
+        subtotal=float(subtotal),
+        discount=0.0,
+        delivery_fee=float(delivery_fee),
+        total_amount=float(total_amount),
+        payment_method=payload.paymentMethod or "COD",
+        payment_status="pending",
+        prescription_file="",
+        status="confirmed",  # Confirmed directly by pharmacist
+        expected_delivery="Expected in 2–4 hours (Phone Order)",
+        delivery_agent="Sanjay Kumar (Dhruv Express)",
+        notes=payload.notes or "Phone Order confirmed by pharmacist",
+        created_at=datetime.now(),
+    )
+    db.add(new_order)
+
+    # If linked to a callback, mark as converted
+    if payload.callbackId:
+        cb = db.query(CallbackRequestModel).filter(CallbackRequestModel.id == payload.callbackId).first()
+        if cb:
+            cb.status = "converted"
+            cb.admin_notes = f"Converted to Order #{order_id}"
+
+    db.commit()
+    db.refresh(new_order)
+
+    order_dict = new_order.to_dict()
+    await broadcast_order_event("new_order", order_dict)
+
+    return {
+        "success": True,
+        "message": f"Phone order #{order_id} created and confirmed successfully!",
         "order": order_dict,
     }
 
