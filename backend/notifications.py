@@ -206,7 +206,7 @@ def generate_order_email_html(order: Dict[str, Any]) -> str:
             <!-- Header -->
             <div style="background-color: #1d4ed8; padding: 24px 32px; text-align: left;">
                 <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: -0.5px;">Dhruv Pharma</h1>
-                <p style="color: #bfdbfe; margin: 4px 0 0 0; font-size: 12px;">Licensed Pharmacy · Pune · Nashik · Ahmednagar · Aurangabad</p>
+                <p style="color: #bfdbfe; margin: 4px 0 0 0; font-size: 12px;">Licensed Pharmacy · Nandurbar · Shahada · Taloda · Nijampur · Akkalkuwa · Shirpur · Sakri</p>
             </div>
 
             <!-- Body -->

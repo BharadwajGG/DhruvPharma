@@ -459,7 +459,7 @@ export default function AdminOrders() {
             customerName: callbackItem ? callbackItem.customerName : '',
             phone: callbackItem ? callbackItem.phone : '',
             email: '',
-            district: callbackItem ? callbackItem.district : 'Pune',
+            district: callbackItem ? callbackItem.district : 'Nandurbar',
             address: '',
             pincode: '',
             items: [],

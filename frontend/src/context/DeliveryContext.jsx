@@ -36,6 +36,7 @@ export function DeliveryProvider({ children }) {
             if (saved) {
                 const parsed = JSON.parse(saved)
                 if (parsed?.name) {
+                    parsed.name = parsed.name.replace(/\s*\d+$/, '').trim()
                     return parsed
                 }
             }
@@ -110,9 +111,9 @@ export function DeliveryProvider({ children }) {
                             )?.name?.replace(/district/i, '').trim() || data.city || data.locality || 'Outside Area'
 
                             geoInfo = {
-                                city: data.city || data.locality || 'Your Location',
+                                city: (data.city || data.locality || 'Your Location').replace(/\s*\d+$/, '').trim(),
                                 postcode: rawPin.length === 6 ? rawPin : '',
-                                district: adminDistrict,
+                                district: adminDistrict.replace(/\s*\d+$/, '').trim(),
                             }
                         }
                     } catch (e) {

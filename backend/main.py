@@ -891,7 +891,7 @@ async def confirm_upi_qr_payment(payload: UPIQRConfirmRequest, db: Session = Dep
 async def create_callback_request(
     customerName: str = Form(...),
     phone: str = Form(...),
-    district: Optional[str] = Form("Pune"),
+    district: Optional[str] = Form("Nandurbar"),
     preferredTime: Optional[str] = Form("Immediate (within 15 mins)"),
     medicinesNeeded: Optional[str] = Form(""),
     prescriptionFile: Optional[UploadFile] = File(None),
@@ -918,7 +918,7 @@ async def create_callback_request(
     new_cb = CallbackRequestModel(
         customer_name=customerName.strip(),
         customer_phone=phone.strip(),
-        district=(district or "Pune").strip(),
+        district=(district or "Nandurbar").strip(),
         preferred_time=(preferredTime or "Immediate (within 15 mins)").strip(),
         medicines_needed=(medicinesNeeded or "").strip(),
         prescription_file=rx_url,
@@ -1016,7 +1016,7 @@ class AdminManualOrderCreate(BaseModel):
     customerName: str
     phone: str
     email: Optional[str] = ""
-    district: str = "Pune"
+    district: str = "Nandurbar"
     address: str
     pincode: Optional[str] = ""
     items: List[AdminManualOrderItem]
@@ -2287,40 +2287,167 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
 # 11. ADMIN SALES REPORTS & ANALYTICS (/api/admin/sales-report)
 # ==============================================================================
 
+AUTHORIZED_HUBS_CONFIG = [
+    {"name": "Nandurbar", "pincode": "425412", "district": "Nandurbar"},
+    {"name": "Shahada",   "pincode": "425409", "district": "Nandurbar"},
+    {"name": "Taloda",    "pincode": "425413", "district": "Nandurbar"},
+    {"name": "Nijampur",  "pincode": "424305", "district": "Dhule"},
+    {"name": "Akkalkuwa", "pincode": "425415", "district": "Nandurbar"},
+    {"name": "Shirpur",   "pincode": "424405", "district": "Dhule"},
+    {"name": "Sakri",     "pincode": "424304", "district": "Dhule"},
+]
+
 @app.get("/api/admin/sales-report")
-def get_sales_report(db: Session = Depends(get_db)):
-    orders = db.query(OrderModel).all()
+def get_sales_report(
+    timeframe: Optional[str] = Query("all"),
+    month: Optional[str] = Query("all"),
+    db: Session = Depends(get_db)
+):
+    all_orders = db.query(OrderModel).order_by(OrderModel.created_at.desc()).all()
 
-    total_revenue = sum(o.total_amount for o in orders if o.status != "cancelled")
-    total_orders = len(orders)
-    delivered_orders = len([o for o in orders if o.status == "delivered"])
-    cancelled_orders = len([o for o in orders if o.status == "cancelled"])
-    pending_orders = max(0, total_orders - delivered_orders - cancelled_orders)
-    avg_order_value = round(total_revenue / max(1, (total_orders - cancelled_orders)), 2)
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day)
+    week_start = today_start - timedelta(days=now.weekday())
+    month_start = datetime(now.year, now.month, 1)
 
-    # Payment breakdown
-    payment_methods = {"COD": 0, "UPI": 0}
-    for o in orders:
-        pm = o.payment_method or "COD"
-        payment_methods[pm] = payment_methods.get(pm, 0) + 1
+    def stats_for_orders(order_list):
+        non_can = [o for o in order_list if (o.status or "").lower() != "cancelled"]
+        can = [o for o in order_list if (o.status or "").lower() == "cancelled"]
+        deliv = [o for o in order_list if (o.status or "").lower() == "delivered"]
+        pend = [o for o in order_list if (o.status or "").lower() not in ["delivered", "cancelled"]]
+        rev = sum(o.total_amount for o in non_can)
+        can_rev = sum(o.total_amount for o in can)
+        return {
+            "revenue": round(rev, 2),
+            "orders": len(order_list),
+            "delivered": len(deliv),
+            "pending": len(pend),
+            "cancelled": len(can),
+            "cancelled_revenue": round(can_rev, 2),
+            "avg_order": round(rev / max(1, len(non_can)), 2)
+        }
 
-    # District breakdown
-    district_sales = {}
-    for o in orders:
-        d = o.district or "Nandurbar"
-        district_sales[d] = district_sales.get(d, 0) + 1
+    # Timeframe metrics (Daily, Weekly, Monthly, All-time)
+    today_orders = [o for o in all_orders if o.created_at and o.created_at >= today_start]
+    week_orders = [o for o in all_orders if o.created_at and o.created_at >= week_start]
+    cur_month_orders = [o for o in all_orders if o.created_at and o.created_at >= month_start]
 
-    # Top selling medicines from parsed items
+    today_stats = stats_for_orders(today_orders)
+    weekly_stats = stats_for_orders(week_orders)
+    monthly_stats = stats_for_orders(cur_month_orders)
+    all_time_stats = stats_for_orders(all_orders)
+
+    # Monthly Archive list (all historical months available in database)
+    from collections import defaultdict
+    months_dict = defaultdict(lambda: {"revenue": 0.0, "orders": 0, "delivered": 0, "cancelled": 0})
+    for o in all_orders:
+        if o.created_at:
+            ym_key = o.created_at.strftime("%Y-%m")
+            months_dict[ym_key]["orders"] += 1
+            if (o.status or "").lower() == "delivered":
+                months_dict[ym_key]["delivered"] += 1
+            if (o.status or "").lower() == "cancelled":
+                months_dict[ym_key]["cancelled"] += 1
+            else:
+                months_dict[ym_key]["revenue"] += o.total_amount
+
+    available_months = []
+    for ym in sorted(months_dict.keys(), reverse=True):
+        try:
+            dt = datetime.strptime(ym, "%Y-%m")
+            label = dt.strftime("%B %Y")
+        except Exception:
+            label = ym
+        available_months.append({
+            "key": ym,
+            "label": label,
+            "revenue": round(months_dict[ym]["revenue"], 2),
+            "orders": months_dict[ym]["orders"],
+            "delivered": months_dict[ym]["delivered"],
+            "cancelled": months_dict[ym]["cancelled"],
+        })
+
+    # Active Filter Scoping:
+    scoped_orders = all_orders
+    if month and month != "all":
+        scoped_orders = [o for o in all_orders if o.created_at and o.created_at.strftime("%Y-%m") == month]
+    elif timeframe == "today":
+        scoped_orders = today_orders
+    elif timeframe == "week":
+        scoped_orders = week_orders
+    elif timeframe == "month":
+        scoped_orders = cur_month_orders
+
+    active_stats = stats_for_orders(scoped_orders)
+
+    # Payment breakdown (ready for COD, UPI QR, Cashfree, and Razorpay)
+    payment_methods = {
+        "COD": 0,
+        "ONLINE": 0,
+        "UPI_QR": 0,
+        "CASHFREE": 0,
+        "RAZORPAY": 0,
+    }
+    for o in scoped_orders:
+        pm = (o.payment_method or "COD").strip().upper()
+        if pm in ["UPI_QR", "UPI"]:
+            payment_methods["UPI_QR"] += 1
+            payment_methods["ONLINE"] += 1
+        elif pm in ["CASHFREE"]:
+            payment_methods["CASHFREE"] += 1
+            payment_methods["ONLINE"] += 1
+        elif pm in ["RAZORPAY"]:
+            payment_methods["RAZORPAY"] += 1
+            payment_methods["ONLINE"] += 1
+        elif pm in ["ONLINE", "NETBANKING", "CARD"]:
+            payment_methods["ONLINE"] += 1
+        else:
+            payment_methods["COD"] += 1
+
+    # Delivery Hubs breakdown for the 7 Authorized Service Hubs
+    hub_counts = {h["name"]: {"orders": 0, "delivered": 0, "revenue": 0.0, "pincode": h["pincode"], "district": h["district"]} for h in AUTHORIZED_HUBS_CONFIG}
+    for o in scoped_orders:
+        d_name = (o.district or "").strip()
+        matched_hub = None
+        for h in AUTHORIZED_HUBS_CONFIG:
+            if h["name"].lower() == d_name.lower() or (o.pincode and o.pincode.strip() == h["pincode"]):
+                matched_hub = h["name"]
+                break
+        if not matched_hub:
+            matched_hub = "Nandurbar"  # Default central hub
+
+        hub_counts[matched_hub]["orders"] += 1
+        if (o.status or "").lower() == "delivered":
+            hub_counts[matched_hub]["delivered"] += 1
+        if (o.status or "").lower() != "cancelled":
+            hub_counts[matched_hub]["revenue"] += o.total_amount
+
+    hub_sales_list = []
+    for h in AUTHORIZED_HUBS_CONFIG:
+        info = hub_counts[h["name"]]
+        hub_sales_list.append({
+            "name": h["name"],
+            "pincode": h["pincode"],
+            "district": h["district"],
+            "orders": info["orders"],
+            "delivered": info["delivered"],
+            "revenue": round(info["revenue"], 2),
+        })
+
+    # Sort hubs by order volume descending
+    hub_sales_list.sort(key=lambda x: x["orders"], reverse=True)
+
+    # Top selling medicines for the active scope
     item_sales = {}
-    for o in orders:
-        if o.status == "cancelled":
+    for o in scoped_orders:
+        if (o.status or "").lower() == "cancelled":
             continue
         try:
             items = json.loads(o.items) if isinstance(o.items, str) else (o.items or [])
             for it in items:
                 name = it.get("name", "Unknown")
-                qty = it.get("qty", 1)
-                price = float(it.get("price", 0.0))
+                qty = int(it.get("qty", it.get("quantity", 1)) or 1)
+                price = float(it.get("price", it.get("sellingPrice", 0.0)) or 0.0)
                 if name not in item_sales:
                     item_sales[name] = {"name": name, "units": 0, "unitsSold": 0, "revenue": 0.0}
                 item_sales[name]["units"] += qty
@@ -2335,41 +2462,75 @@ def get_sales_report(db: Session = Depends(get_db)):
         reverse=True
     )[:8]
 
-    # Daily revenue
-    from collections import defaultdict
+    # Daily revenue chart for active scope
     daily_revenue = defaultdict(float)
-    for o in orders:
-        if o.status != "cancelled" and o.created_at:
+    for o in scoped_orders:
+        if (o.status or "").lower() != "cancelled" and o.created_at:
             day_str = o.created_at.strftime("%d %b")
             daily_revenue[day_str] += o.total_amount
 
-    daily_chart = [{"date": k, "revenue": round(v, 2)} for k, v in daily_revenue.items()][-7:]
+    daily_chart = [{"date": k, "revenue": round(v, 2)} for k, v in daily_revenue.items()]
+
+    current_time_str = datetime.now().isoformat()
 
     return {
-        # Snake-case (used by frontend components)
-        "total_revenue": round(total_revenue, 2),
-        "total_orders": total_orders,
-        "delivered_orders": delivered_orders,
-        "cancelled_orders": cancelled_orders,
-        "pending_orders": pending_orders,
-        "avg_order_value": avg_order_value,
-        "payment_methods": payment_methods,
-        "district_sales": district_sales,
+        # Timeframe & Filter Context
+        "active_timeframe": timeframe,
+        "selected_month": month,
+        "available_months": available_months,
+
+        # Real-Time Resettable Tickers
+        "today_sales": today_stats,
+        "weekly_sales": weekly_stats,
+        "monthly_sales": monthly_stats,
+        "all_time_sales": all_time_stats,
+
+        # Metrics for the Active Scope (Selected Month or Filter)
+        "total_revenue": active_stats["revenue"],
+        "total_orders": active_stats["orders"],
+        "delivered_orders": active_stats["delivered"],
+        "cancelled_orders": active_stats["cancelled"],
+        "cancelled_revenue": active_stats["cancelled_revenue"],
+        "pending_orders": active_stats["pending"],
+        "avg_order_value": active_stats["avg_order"],
+
+        # 7 Authorized Service Hubs
+        "hub_sales": hub_sales_list,
+        "district_sales": {h["name"]: h["orders"] for h in hub_sales_list if h["orders"] > 0},
+
+        # Payment Methods (COD, Online, Razorpay ready)
+        "payment_methods": {
+            "COD": payment_methods["COD"],
+            "UPI": payment_methods["ONLINE"],
+            "ONLINE": payment_methods["ONLINE"],
+            "UPI_QR": payment_methods["UPI_QR"],
+            "CASHFREE": payment_methods["CASHFREE"],
+            "RAZORPAY": payment_methods["RAZORPAY"],
+        },
+
+        # Top Medicines & Chart
         "top_medicines": top_selling,
         "daily_revenue": daily_chart,
+        "updated_at": current_time_str,
 
-        # Camel-case (backwards compatibility)
-        "totalRevenue": round(total_revenue, 2),
-        "totalOrders": total_orders,
-        "deliveredOrders": delivered_orders,
-        "cancelledOrders": cancelled_orders,
-        "pendingOrders": pending_orders,
-        "averageOrderValue": avg_order_value,
-        "avgOrderValue": avg_order_value,
+        # Backwards compatibility camelCase
+        "totalRevenue": active_stats["revenue"],
+        "totalOrders": active_stats["orders"],
+        "deliveredOrders": active_stats["delivered"],
+        "cancelledOrders": active_stats["cancelled"],
+        "cancelledRevenue": active_stats["cancelled_revenue"],
+        "pendingOrders": active_stats["pending"],
+        "averageOrderValue": active_stats["avg_order"],
+        "todaySales": today_stats,
+        "weeklySales": weekly_stats,
+        "monthlySales": monthly_stats,
+        "allTimeSales": all_time_stats,
+        "availableMonths": available_months,
+        "hubSales": hub_sales_list,
         "paymentMethods": payment_methods,
-        "districtSales": district_sales,
         "topSelling": top_selling,
         "dailyRevenue": daily_chart,
+        "updatedAt": current_time_str,
     }
 
 

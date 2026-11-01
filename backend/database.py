@@ -112,7 +112,7 @@ class OrderModel(Base):
     customer_phone = Column(String(50), nullable=False)
     customer_email = Column(String(200), nullable=True, default="")
     user_id = Column(String(100), nullable=True, index=True, default="")
-    district = Column(String(100), nullable=False)  # Pune, Nashik, Ahmednagar, Aurangabad
+    district = Column(String(100), nullable=False)  # Nandurbar, Shahada, Taloda, Nijampur, Akkalkuwa, Shirpur, Sakri
     address = Column(Text, nullable=False)
     pincode = Column(String(20), nullable=True, default="")
     items = Column(Text, nullable=False, default="[]")  # JSON list of cart items
@@ -178,7 +178,7 @@ class CallbackRequestModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     customer_name = Column(String(200), nullable=False)
     customer_phone = Column(String(50), nullable=False, index=True)
-    district = Column(String(100), nullable=False, default="Pune")
+    district = Column(String(100), nullable=False, default="Nandurbar")
     preferred_time = Column(String(100), default="Immediate (within 15 mins)")
     medicines_needed = Column(Text, nullable=True, default="")
     prescription_file = Column(String(300), nullable=True, default="")

@@ -30,10 +30,12 @@ export default function AdminDashboard() {
     const [orders, setOrders] = useState([])
     const [prescriptions, setPrescriptions] = useState([])
     const [salesReport, setSalesReport] = useState(null)
+    const [selectedMonth, setSelectedMonth] = useState('all') // 'all' or 'YYYY-MM'
     const [coupons, setCoupons] = useState([])
     const [isLoading, setIsLoading] = useState(true)
     const [isLoadingCoupons, setIsLoadingCoupons] = useState(false)
     const [isLoadingReport, setIsLoadingReport] = useState(false)
+    const [isLiveConnected, setIsLiveConnected] = useState(true)
     const [lastUpdated, setLastUpdated] = useState(new Date())
 
     // New Coupon Form state with comprehensive customization
@@ -52,8 +54,8 @@ export default function AdminDashboard() {
     const [isCreatingCoupon, setIsCreatingCoupon] = useState(false)
     const [couponMessage, setCouponMessage] = useState(null)
 
-    const loadData = async () => {
-        setIsLoading(true)
+    const loadData = async (silent = false) => {
+        if (!silent) setIsLoading(true)
         try {
             const [ordersRes, rxRes] = await Promise.all([
                 fetch('http://localhost:8000/api/orders'),
@@ -72,11 +74,11 @@ export default function AdminDashboard() {
         } catch (err) {
             console.error('Failed to load dashboard metrics:', err)
         } finally {
-            setIsLoading(false)
+            if (!silent) setIsLoading(false)
         }
     }
 
-    const loadSalesReport = async (silent = false) => {
+    const loadSalesReport = async (silent = false, monthFilter = selectedMonth) => {
         if (!silent && !salesReport) {
             setIsLoadingReport(true)
         }
@@ -84,37 +86,42 @@ export default function AdminDashboard() {
         const timeoutId = setTimeout(() => controller.abort(), 6000)
 
         try {
-            const res = await fetch('http://localhost:8000/api/admin/sales-report', {
+            const queryParam = monthFilter && monthFilter !== 'all' ? `?month=${monthFilter}` : ''
+            const res = await fetch(`http://localhost:8000/api/admin/sales-report${queryParam}`, {
                 signal: controller.signal,
             })
             clearTimeout(timeoutId)
             if (res.ok) {
                 const data = await res.json()
                 setSalesReport(data)
+                setLastUpdated(new Date())
                 return
             }
         } catch (err) {
             console.warn('Backend sales-report request timed out or unavailable:', err)
         } finally {
             clearTimeout(timeoutId)
-            setIsLoadingReport(false)
+            if (!silent) setIsLoadingReport(false)
         }
 
-        // Resilient fallback: calculate instant financial analytics directly from current orders if server report unavailable
+        // Resilient fallback: calculate instant financial analytics directly from current orders in memory
         setSalesReport((prev) => {
-            if (prev) return prev
-            const nonCancelled = (orders || []).filter((o) => (o.status || '').toLowerCase() !== 'cancelled')
+            const currentOrders = orders || []
+            const nonCancelled = currentOrders.filter((o) => (o.status || '').toLowerCase() !== 'cancelled')
             const totalRev = nonCancelled.reduce((sum, o) => sum + (Number(o.total_amount || o.totalAmount || 0)), 0)
-            const delivered = (orders || []).filter((o) => (o.status || '').toLowerCase() === 'delivered').length
-            const cancelled = (orders || []).filter((o) => (o.status || '').toLowerCase() === 'cancelled').length
-            const pending = Math.max(0, (orders || []).length - delivered - cancelled)
+            const delivered = currentOrders.filter((o) => (o.status || '').toLowerCase() === 'delivered').length
+            const cancelled = currentOrders.filter((o) => (o.status || '').toLowerCase() === 'cancelled').length
+            const pending = Math.max(0, currentOrders.length - delivered - cancelled)
             const avgVal = nonCancelled.length > 0 ? Math.round(totalRev / nonCancelled.length) : 0
+
+            const codOrders = currentOrders.filter((o) => (o.payment_method || '').toUpperCase() === 'COD').length
+            const upiOrders = currentOrders.filter((o) => ['UPI', 'UPI_QR', 'CASHFREE', 'ONLINE'].includes((o.payment_method || '').toUpperCase())).length
 
             return {
                 total_revenue: totalRev,
                 totalRevenue: totalRev,
-                total_orders: (orders || []).length,
-                totalOrders: (orders || []).length,
+                total_orders: currentOrders.length,
+                totalOrders: currentOrders.length,
                 delivered_orders: delivered,
                 deliveredOrders: delivered,
                 cancelled_orders: cancelled,
@@ -123,10 +130,10 @@ export default function AdminDashboard() {
                 pendingOrders: pending,
                 avg_order_value: avgVal,
                 averageOrderValue: avgVal,
-                payment_methods: { COD: (orders || []).filter((o) => o.payment_method === 'COD').length, UPI: (orders || []).filter((o) => o.payment_method === 'UPI').length },
-                district_sales: { Nandurbar: nonCancelled.length },
-                top_medicines: [],
-                daily_revenue: [],
+                payment_methods: { COD: codOrders, UPI: upiOrders, ONLINE: upiOrders },
+                district_sales: prev?.district_sales || { Nandurbar: nonCancelled.length },
+                top_medicines: prev?.top_medicines || [],
+                daily_revenue: prev?.daily_revenue || [],
             }
         })
     }
@@ -146,50 +153,98 @@ export default function AdminDashboard() {
         }
     }
 
+    // Initial load on mount
     useEffect(() => {
         loadData()
         loadSalesReport()
         loadCoupons()
     }, [])
 
-    // Real-Time Server-Sent Events (SSE) Listener
+    // Re-fetch instantly when active tab switches to reports or overview
+    useEffect(() => {
+        if (activeTab === 'reports') {
+            loadSalesReport(false)
+        } else if (activeTab === 'overview') {
+            loadData(false)
+        } else if (activeTab === 'coupons') {
+            loadCoupons()
+        }
+    }, [activeTab])
+
+    // Silent background heartbeat polling every 6 seconds for guaranteed live sync
+    useEffect(() => {
+        const heartbeat = setInterval(() => {
+            loadData(true)
+            loadSalesReport(true)
+        }, 6000)
+        return () => clearInterval(heartbeat)
+    }, [])
+
+    // Real-Time Server-Sent Events (SSE) Listener with Auto-Reconnection Loop
     useEffect(() => {
         let eventSource = null
-        try {
-            eventSource = new EventSource('http://localhost:8000/api/orders/stream')
+        let reconnectTimer = null
+        let isMounted = true
 
-            eventSource.onmessage = (event) => {
-                try {
-                    const parsed = JSON.parse(event.data)
+        const setupSSE = () => {
+            if (!isMounted) return
+            try {
+                eventSource = new EventSource('http://localhost:8000/api/orders/stream')
 
-                    if (parsed.type === 'new_order' && parsed.order) {
-                        setOrders((prev) => [parsed.order, ...prev.filter((o) => o.id !== parsed.order.id)])
-                        setLastUpdated(new Date())
-                        loadSalesReport(true)
-                    } else if (parsed.type === 'status_update' && parsed.order) {
-                        setOrders((prev) =>
-                            prev.map((o) => (o.id === parsed.order.id ? { ...o, ...parsed.order } : o))
-                        )
-                        setLastUpdated(new Date())
-                        loadSalesReport(true)
-                    } else if (parsed.type === 'order_deleted' && parsed.orderId) {
-                        setOrders((prev) => prev.filter((o) => o.id !== parsed.orderId))
-                        setLastUpdated(new Date())
-                        loadSalesReport(true)
-                    }
-                } catch (e) {
-                    console.error('SSE JSON parse error in AdminDashboard:', e)
+                eventSource.onopen = () => {
+                    if (isMounted) setIsLiveConnected(true)
                 }
-            }
 
-            eventSource.onerror = () => {
-                eventSource.close()
+                eventSource.onmessage = (event) => {
+                    if (!isMounted) return
+                    try {
+                        const parsed = JSON.parse(event.data)
+
+                        if (parsed.type === 'new_order' && parsed.order) {
+                            setOrders((prev) => [parsed.order, ...prev.filter((o) => o.id !== parsed.order.id)])
+                            setLastUpdated(new Date())
+                            loadSalesReport(true)
+                        } else if (parsed.type === 'status_update' && parsed.order) {
+                            setOrders((prev) =>
+                                prev.map((o) => (o.id === parsed.order.id ? { ...o, ...parsed.order } : o))
+                            )
+                            setLastUpdated(new Date())
+                            loadSalesReport(true)
+                        } else if (parsed.type === 'order_deleted' && parsed.orderId) {
+                            setOrders((prev) => prev.filter((o) => o.id !== parsed.orderId && o.order_id !== parsed.orderId))
+                            setLastUpdated(new Date())
+                            loadSalesReport(true)
+                        } else if (parsed.type === 'order_cancelled') {
+                            setLastUpdated(new Date())
+                            loadSalesReport(true)
+                            loadData(true)
+                        }
+                    } catch (e) {
+                        console.error('SSE JSON parse error in AdminDashboard:', e)
+                    }
+                }
+
+                eventSource.onerror = () => {
+                    if (!isMounted) return
+                    setIsLiveConnected(false)
+                    if (eventSource) eventSource.close()
+                    clearTimeout(reconnectTimer)
+                    // Auto-retry connection in 3 seconds
+                    reconnectTimer = setTimeout(setupSSE, 3000)
+                }
+            } catch (err) {
+                if (!isMounted) return
+                setIsLiveConnected(false)
+                clearTimeout(reconnectTimer)
+                reconnectTimer = setTimeout(setupSSE, 3000)
             }
-        } catch (err) {
-            console.warn('Could not connect to SSE in AdminDashboard:', err)
         }
 
+        setupSSE()
+
         return () => {
+            isMounted = false
+            clearTimeout(reconnectTimer)
             if (eventSource) eventSource.close()
         }
     }, [])
@@ -358,28 +413,40 @@ export default function AdminDashboard() {
                     <div>
                         <div className="flex items-center gap-2.5">
                             <h1 className="text-xl font-bold text-slate-900">Dhruv Pharma Management</h1>
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                Store Connected
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
+                                isLiveConnected
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}>
+                                <span className="relative flex h-2 w-2">
+                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                                        isLiveConnected ? 'bg-emerald-400' : 'bg-amber-400'
+                                    }`}></span>
+                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                                        isLiveConnected ? 'bg-emerald-500' : 'bg-amber-500'
+                                    }`}></span>
+                                </span>
+                                <span>{isLiveConnected ? 'Live Real-Time Sync Active' : 'Reconnecting Live Stream...'}</span>
                             </span>
                         </div>
-                        <p className="text-slate-500 text-xs sm:text-sm mt-1">
-                            Quick summary of customer orders, prescriptions, revenue reports, and discount offers.
+                        <p className="text-slate-500 text-xs sm:text-sm mt-1 flex items-center gap-2">
+                            <span>Real-time figures synchronized with live pharmacy store database.</span>
+                            <span className="text-[11px] text-slate-400">· Last sync: {lastUpdated.toLocaleTimeString()}</span>
                         </p>
                     </div>
 
                     <div className="flex items-center gap-2 self-start sm:self-auto">
                         <button
                             onClick={() => {
-                                loadData()
-                                loadSalesReport()
+                                loadData(false)
+                                loadSalesReport(false)
                                 loadCoupons()
                             }}
-                            disabled={isLoading}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-colors cursor-pointer"
+                            disabled={isLoading || isLoadingReport}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-colors cursor-pointer disabled:opacity-50"
                         >
-                            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
-                            Refresh Numbers
+                            <RefreshCw size={13} className={isLoading || isLoadingReport ? 'animate-spin text-emerald-600' : ''} />
+                            <span>Refresh Numbers</span>
                         </button>
                     </div>
                 </div>
@@ -557,22 +624,143 @@ export default function AdminDashboard() {
                             </div>
                         ) : (
                             <>
-                                {/* 4 Financial Metric Cards */}
+                                {/* ── 1. Real-Time Resettable Tickers (Today, This Week, This Month, Lifetime) ── */}
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {/* Daily Sales */}
+                                    <div className="bg-white p-5 rounded-2xl border border-blue-200/90 shadow-xs relative overflow-hidden">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider block">Today's Sales</span>
+                                            <span className="text-[10px] font-bold bg-blue-50 text-blue-800 px-2 py-0.5 rounded-full border border-blue-200">
+                                                Resets Midnight
+                                            </span>
+                                        </div>
+                                        <p className="text-2xl font-black text-blue-700 mt-2">
+                                            ₹{(salesReport?.today_sales?.revenue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </p>
+                                        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
+                                            <span>{salesReport?.today_sales?.orders ?? 0} orders today</span>
+                                            <span className="text-emerald-700 font-semibold">{salesReport?.today_sales?.delivered ?? 0} delivered</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Weekly Sales */}
+                                    <div className="bg-white p-5 rounded-2xl border border-indigo-200/90 shadow-xs relative overflow-hidden">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider block">This Week's Sales</span>
+                                            <span className="text-[10px] font-bold bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded-full border border-indigo-200">
+                                                Current 7 Days
+                                            </span>
+                                        </div>
+                                        <p className="text-2xl font-black text-indigo-700 mt-2">
+                                            ₹{(salesReport?.weekly_sales?.revenue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </p>
+                                        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
+                                            <span>{salesReport?.weekly_sales?.orders ?? 0} orders this week</span>
+                                            <span className="text-emerald-700 font-semibold">{salesReport?.weekly_sales?.delivered ?? 0} delivered</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Monthly Sales */}
+                                    <div className="bg-white p-5 rounded-2xl border border-emerald-200/90 shadow-xs relative overflow-hidden">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">This Month's Sales</span>
+                                            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                                            </span>
+                                        </div>
+                                        <p className="text-2xl font-black text-emerald-700 mt-2">
+                                            ₹{(salesReport?.monthly_sales?.revenue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </p>
+                                        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
+                                            <span>{salesReport?.monthly_sales?.orders ?? 0} orders in month</span>
+                                            <span className="text-emerald-700 font-semibold">{salesReport?.monthly_sales?.delivered ?? 0} delivered</span>
+                                        </div>
+                                    </div>
+
+                                    {/* All-Time Store Revenue */}
+                                    <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs relative overflow-hidden">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">All-Time Store Revenue</span>
+                                            <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full border border-slate-200">
+                                                Lifetime Total
+                                            </span>
+                                        </div>
+                                        <p className="text-2xl font-black text-slate-900 mt-2">
+                                            ₹{(salesReport?.all_time_sales?.revenue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </p>
+                                        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100">
+                                            <span>{salesReport?.all_time_sales?.orders ?? 0} total customer orders</span>
+                                            <span className="text-emerald-700 font-semibold">{salesReport?.all_time_sales?.delivered ?? 0} delivered</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* ── 2. Historical Monthly Archive Selector Bar (Review past 2-3 months) ── */}
+                                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                            <BarChart3 size={16} className="text-emerald-600" />
+                                            <span>Historical Monthly Sales Archive &amp; Deep-Dive</span>
+                                        </h4>
+                                        <p className="text-xs text-slate-500 mt-0.5">
+                                            Select any month (e.g. current or previous 2–3 months) to analyze sales performance, bill numbers, and delivered orders.
+                                        </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs font-semibold text-slate-600">Active View:</span>
+                                        <select
+                                            value={selectedMonth}
+                                            onChange={(e) => {
+                                                const m = e.target.value
+                                                setSelectedMonth(m)
+                                                loadSalesReport(false, m)
+                                            }}
+                                            className="bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-200 cursor-pointer shadow-2xs"
+                                        >
+                                            <option value="all">Lifetime (All Months Combined)</option>
+                                            {(salesReport?.available_months || []).map((m) => (
+                                                <option key={m.key} value={m.key}>
+                                                    {m.label} — ₹{m.revenue.toLocaleString('en-IN')} ({m.orders} orders)
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* ── 3. Cancellation & Voided Revenue Cue (Strict Data Accuracy) ── */}
+                                {salesReport?.cancelled_orders > 0 && (
+                                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-rose-800 animate-in fade-in">
+                                        <div className="flex items-center gap-2">
+                                            <AlertCircle size={15} className="text-rose-600 shrink-0" />
+                                            <span>
+                                                <strong>{salesReport.cancelled_orders} Cancelled Order{salesReport.cancelled_orders > 1 ? 's' : ''}</strong> (₹{(salesReport.cancelled_revenue || 0).toLocaleString('en-IN')} voided) are strictly excluded from total store revenue.
+                                            </span>
+                                        </div>
+                                        <span className="font-bold text-[10px] uppercase tracking-wider bg-rose-100 text-rose-900 px-2 py-0.5 rounded self-start sm:self-auto shrink-0">
+                                            Zero Payment Inflow
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* ── 4. Scoped Metric Cards for Active Selection ── */}
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Total Sales Revenue</span>
+                                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                            {selectedMonth === 'all' ? 'Filtered Net Revenue' : 'Month Net Revenue'}
+                                        </span>
                                         <p className="text-2xl font-black text-emerald-700 mt-1">
-                                            ₹{(salesReport?.total_revenue ?? salesReport?.totalRevenue ?? 0).toLocaleString('en-IN')}
+                                            ₹{(salesReport?.total_revenue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                         </p>
                                         <span className="text-[11px] text-emerald-700 font-semibold mt-1 inline-flex items-center gap-1">
-                                            <CheckCircle size={12} /> Cash + Online UPI
+                                            <CheckCircle size={12} /> Excludes Cancelled Orders
                                         </span>
                                     </div>
 
                                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
                                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Average Order Bill</span>
                                         <p className="text-2xl font-black text-slate-900 mt-1">
-                                            ₹{(salesReport?.avg_order_value ?? salesReport?.averageOrderValue ?? 0).toLocaleString('en-IN')}
+                                            ₹{(salesReport?.avg_order_value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                         </p>
                                         <span className="text-[11px] text-slate-500 mt-1 block">Average per customer bill</span>
                                     </div>
@@ -580,23 +768,23 @@ export default function AdminDashboard() {
                                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
                                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Orders Delivered</span>
                                         <p className="text-2xl font-black text-emerald-700 mt-1">
-                                            {salesReport?.delivered_orders ?? salesReport?.deliveredOrders ?? 0}
+                                            {salesReport?.delivered_orders ?? 0}
                                         </p>
                                         <span className="text-[11px] text-slate-500 mt-1 block">
-                                            Out of {salesReport?.total_orders ?? salesReport?.totalOrders ?? 0} total customer orders
+                                            Out of {salesReport?.total_orders ?? 0} customer orders
                                         </span>
                                     </div>
 
                                     <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
                                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Orders Waiting to Deliver</span>
                                         <p className="text-2xl font-black text-amber-700 mt-1">
-                                            {salesReport?.pending_orders ?? salesReport?.pendingOrders ?? 0}
+                                            {salesReport?.pending_orders ?? 0}
                                         </p>
                                         <span className="text-[11px] text-amber-800 mt-1 block">Pending dispatch</span>
                                     </div>
                                 </div>
 
-                                {/* Row: Top Selling Medicines + Payment Split */}
+                                {/* ── 5. Row: Top Selling Medicines + 7 Authorized Service Hubs + Payment Gateway ── */}
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                     {/* Top Selling Medicines (2 cols) */}
                                     <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-4">
@@ -634,53 +822,107 @@ export default function AdminDashboard() {
                                                 ))}
                                             </div>
                                         ) : (
-                                            <p className="text-xs text-slate-400 py-6 text-center">No sales recorded yet.</p>
+                                            <p className="text-xs text-slate-400 py-6 text-center">No sales recorded for this period yet.</p>
                                         )}
                                     </div>
 
-                                    {/* Payment Methods & Regional Breakdown (1 col) */}
+                                    {/* 7 Authorized Service Hubs & Payment Gateways (1 col) */}
                                     <div className="space-y-6">
-                                        {/* Payment Methods */}
+                                        {/* 7 Authorized Service Hubs (Nandurbar & Dhule) */}
                                         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-4">
-                                            <div className="flex items-center gap-2">
-                                                <CreditCard size={18} className="text-emerald-700" />
-                                                <h3 className="font-bold text-slate-900 text-sm">Payment Methods</h3>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <MapPin size={18} className="text-emerald-700" />
+                                                    <h3 className="font-bold text-slate-900 text-sm">7 Authorized Service Hubs</h3>
+                                                </div>
+                                                <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                                                    Nandurbar &amp; Dhule
+                                                </span>
                                             </div>
-                                            <div className="space-y-2">
-                                                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 text-xs">
-                                                    <span className="font-bold text-slate-700">Cash on Delivery (COD)</span>
-                                                    <span className="font-bold text-emerald-700">
-                                                        {(salesReport?.payment_methods?.COD ?? salesReport?.paymentMethods?.COD ?? 0)} orders
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 text-xs">
-                                                    <span className="font-bold text-slate-700">Online UPI / Scanner</span>
-                                                    <span className="font-bold text-blue-700">
-                                                        {(salesReport?.payment_methods?.UPI ?? salesReport?.paymentMethods?.UPI ?? 0)} orders
-                                                    </span>
-                                                </div>
+
+                                            <div className="space-y-2 text-xs">
+                                                {(salesReport?.hub_sales || []).map((hub) => (
+                                                    <div key={hub.name} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:border-slate-300 transition-colors">
+                                                        <div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="font-bold text-slate-900">{hub.name}</span>
+                                                                <span className="text-[10px] text-slate-400 font-mono">({hub.pincode})</span>
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-500">{hub.district} Dist. · {hub.delivered} delivered</span>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span className="font-bold text-slate-900 block">
+                                                                {hub.orders} {hub.orders === 1 ? 'order' : 'orders'}
+                                                            </span>
+                                                            <span className="text-[10px] text-emerald-700 font-semibold font-mono">
+                                                                ₹{hub.revenue.toLocaleString('en-IN')}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
 
-                                        {/* Regional Delivery Breakdown */}
+                                        {/* Payment Collection Methods (Extensible Architecture: COD, UPI QR, Cashfree, Razorpay) */}
                                         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-4">
-                                            <div className="flex items-center gap-2">
-                                                <MapPin size={18} className="text-emerald-700" />
-                                                <h3 className="font-bold text-slate-900 text-sm">Delivery Towns &amp; Hubs</h3>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <CreditCard size={18} className="text-emerald-700" />
+                                                    <h3 className="font-bold text-slate-900 text-sm">Payment Collection Methods</h3>
+                                                </div>
+                                                <span className="text-[11px] font-bold text-slate-400">
+                                                    {salesReport?.total_orders ?? 0} Orders
+                                                </span>
                                             </div>
-                                            <div className="space-y-1.5 text-xs">
-                                                {(salesReport?.district_sales || salesReport?.districtSales) && Object.keys(salesReport.district_sales || salesReport.districtSales).length > 0 ? (
-                                                    Object.entries(salesReport.district_sales || salesReport.districtSales).map(([district, count]) => (
-                                                        <div key={district} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
-                                                            <span className="text-slate-700 font-semibold">{district}</span>
-                                                            <span className="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">
-                                                                {count} orders
+                                            <div className="space-y-2">
+                                                {/* Cash on Delivery */}
+                                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                        <span className="font-bold text-slate-700">Cash on Delivery (COD)</span>
+                                                    </div>
+                                                    <span className="font-bold text-emerald-700">
+                                                        {(salesReport?.payment_methods?.COD ?? 0)} orders
+                                                    </span>
+                                                </div>
+
+                                                {/* Dynamic UPI QR */}
+                                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                                        <span className="font-bold text-slate-700">Dynamic UPI QR Scanner</span>
+                                                    </div>
+                                                    <span className="font-bold text-blue-700">
+                                                        {(salesReport?.payment_methods?.UPI_QR ?? 0)} orders
+                                                    </span>
+                                                </div>
+
+                                                {/* Cashfree Gateway */}
+                                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                                                        <span className="font-bold text-slate-700">Cashfree Online Gateway</span>
+                                                    </div>
+                                                    <span className="font-bold text-purple-700">
+                                                        {(salesReport?.payment_methods?.CASHFREE ?? 0)} orders
+                                                    </span>
+                                                </div>
+
+                                                {/* Razorpay Gateway Prebuilt Slot */}
+                                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 border border-dashed border-slate-200 text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                                        <div>
+                                                            <span className="font-bold text-slate-700">Razorpay Gateway</span>
+                                                            <span className="text-[10px] text-amber-700 font-semibold ml-1.5 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                                                Ready to Connect
                                                             </span>
                                                         </div>
-                                                    ))
-                                                ) : (
-                                                    <p className="text-xs text-slate-400 py-2">No regional orders yet.</p>
-                                                )}
+                                                    </div>
+                                                    <span className="font-bold text-slate-500">
+                                                        {(salesReport?.payment_methods?.RAZORPAY ?? 0)} orders
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
