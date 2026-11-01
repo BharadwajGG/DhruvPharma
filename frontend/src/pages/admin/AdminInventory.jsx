@@ -23,6 +23,7 @@ import {
     Loader2,
     Pencil,
     Check,
+    Plus,
 } from 'lucide-react'
 
 const ALL_CATEGORIES = [
@@ -90,6 +91,25 @@ export default function AdminInventory() {
     const [feedbackMsg, setFeedbackMsg] = useState(null)
     const [editingNameId, setEditingNameId] = useState(null)
     const [editingNameValue, setEditingNameValue] = useState('')
+
+    // Add Medicine Modal State
+    const [showAddMedicineModal, setShowAddMedicineModal] = useState(false)
+    const [isSubmittingMedicine, setIsSubmittingMedicine] = useState(false)
+    const [addMedicineForm, setAddMedicineForm] = useState({
+        itemCode: '',
+        name: '',
+        company: '',
+        salt: '',
+        category: 'General Healthcare',
+        mrp: '',
+        costPrice: '',
+        sellingPrice: '',
+        stockQuantity: '25',
+        minStock: '15',
+        requiresPrescription: false,
+        isPublished: true,
+        isVisible: true,
+    })
 
     // Fetch Staged Items
     const fetchStaged = async () => {
@@ -363,6 +383,93 @@ export default function AdminInventory() {
         }
     }
 
+    // Open Add Medicine Modal
+    const handleOpenAddMedicineModal = () => {
+        setAddMedicineForm({
+            itemCode: '',
+            name: '',
+            company: '',
+            salt: '',
+            category: 'General Healthcare',
+            mrp: '',
+            costPrice: '',
+            sellingPrice: '',
+            stockQuantity: '25',
+            minStock: '15',
+            requiresPrescription: false,
+            isPublished: activeTab === 'live',
+            isVisible: true,
+        })
+        setShowAddMedicineModal(true)
+    }
+
+    // Submit Add Medicine Form
+    const handleSubmitAddMedicine = async (e) => {
+        e.preventDefault()
+        if (!addMedicineForm.name.trim()) {
+            alert('Please enter medicine name.')
+            return
+        }
+
+        const mrpNum = parseFloat(addMedicineForm.mrp) || 0
+        const costNum = parseFloat(addMedicineForm.costPrice) || 0
+        let sellNum = parseFloat(addMedicineForm.sellingPrice) || 0
+
+        // If selling price not entered, calculate default discount price (12% off MRP)
+        if (sellNum <= 0 && mrpNum > 0) {
+            sellNum = Math.round(mrpNum * 0.88 * 100) / 100
+        }
+
+        setIsSubmittingMedicine(true)
+        try {
+            const payload = {
+                itemCode: addMedicineForm.itemCode.trim() || undefined,
+                name: addMedicineForm.name.trim(),
+                company: addMedicineForm.company.trim(),
+                salt: addMedicineForm.salt.trim(),
+                category: addMedicineForm.category,
+                mrp: mrpNum,
+                costPrice: costNum,
+                sellingPrice: sellNum,
+                stockQuantity: parseInt(addMedicineForm.stockQuantity) || 0,
+                minStock: parseInt(addMedicineForm.minStock) || 15,
+                requiresPrescription: Boolean(addMedicineForm.requiresPrescription),
+                isPublished: Boolean(addMedicineForm.isPublished),
+                isVisible: Boolean(addMedicineForm.isVisible),
+            }
+
+            const res = await fetch('http://localhost:8000/api/inventory/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.detail || 'Failed to add medicine.')
+            }
+
+            setShowAddMedicineModal(false)
+            setFeedbackMsg({ type: 'success', text: data.message })
+            if (payload.isPublished) {
+                setActiveTab('live')
+                fetchLive()
+            } else {
+                setActiveTab('staged')
+                fetchStaged()
+            }
+        } catch (err) {
+            console.error('Add medicine error:', err)
+            alert(err.message || 'Error adding medicine.')
+        } finally {
+            setIsSubmittingMedicine(false)
+        }
+    }
+
+    // Export Catalog CSV
+    const handleExportCatalogCSV = () => {
+        window.open('http://localhost:8000/api/inventory/export-csv', '_blank')
+    }
+
     const currentItems = activeTab === 'staged' ? stagedItems : liveItems
     const currentTotal = activeTab === 'staged' ? stagedTotal : liveTotal
     const currentPage = activeTab === 'staged' ? stagedPage : livePage
@@ -387,15 +494,38 @@ export default function AdminInventory() {
                         </p>
                     </div>
 
-                    {/* Quick Sample CSV Download */}
-                    <a
-                        href="http://localhost:8000/api/inventory/sample-csv"
-                        download="DHRUV_PHARMA_DISTRIBUTOR_SAMPLE.csv"
-                        className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-xs shrink-0"
-                    >
-                        <Download size={14} className="text-emerald-700" />
-                        Download Sample CSV File
-                    </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* + Add Medicine Button */}
+                        <button
+                            type="button"
+                            onClick={handleOpenAddMedicineModal}
+                            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+                        >
+                            <Plus size={15} />
+                            <span>+ Add Medicine</span>
+                        </button>
+
+                        {/* Export Catalog CSV */}
+                        <button
+                            type="button"
+                            onClick={handleExportCatalogCSV}
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                            title="Export all inventory medicines to CSV spreadsheet"
+                        >
+                            <Download size={14} className="text-blue-600" />
+                            <span>Export CSV</span>
+                        </button>
+
+                        {/* Quick Sample CSV Download */}
+                        <a
+                            href="http://localhost:8000/api/inventory/sample-csv"
+                            download="DHRUV_PHARMA_DISTRIBUTOR_SAMPLE.csv"
+                            className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-xs shrink-0"
+                        >
+                            <Download size={14} className="text-emerald-700" />
+                            <span>Sample CSV</span>
+                        </a>
+                    </div>
                 </div>
 
                 {/* ── Feedback Banner ── */}
@@ -1017,6 +1147,236 @@ export default function AdminInventory() {
                                     )}
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                )}
+                {/* ── Add Medicine to Inventory Modal ── */}
+                {showAddMedicineModal && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-7 space-y-5 border border-slate-200 shadow-2xl relative max-h-[92vh] flex flex-col">
+                            {/* Close */}
+                            <button
+                                type="button"
+                                onClick={() => setShowAddMedicineModal(false)}
+                                className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                    <Plus size={22} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-slate-900 text-base">Add Medicine to Inventory</h3>
+                                    <p className="text-xs text-slate-500">
+                                        Fill in all columns matching the distributor CSV &amp; live catalog chart
+                                    </p>
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleSubmitAddMedicine} className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+                                {/* 1. Basic Medicine Info */}
+                                <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                                    <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                        <Pill size={14} className="text-emerald-700" />
+                                        <span>1. Medicine Identification</span>
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="sm:col-span-2">
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                Medicine Name &amp; Pack Details <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. AUGMENTIN 625 DUO TAB (10 Tablets / Strip)"
+                                                value={addMedicineForm.name}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, name: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 text-xs"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                Item Code <span className="text-slate-400 font-normal">(optional - auto generated)</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. ITM-1025 or 002574"
+                                                value={addMedicineForm.itemCode}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, itemCode: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 font-mono text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                Company / Manufacturer
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. GlaxoSmithKline, Cipla, Abbott"
+                                                value={addMedicineForm.company}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, company: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 text-xs"
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                Salt Composition / Generic Formulation
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. AMOXYCILLIN 500MG + CLAVULANIC ACID 125MG"
+                                                value={addMedicineForm.salt}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, salt: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 text-xs font-mono"
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                                            <select
+                                                value={addMedicineForm.category}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, category: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 text-xs font-semibold"
+                                            >
+                                                {ALL_CATEGORIES.filter(c => c !== 'All').map((cat) => (
+                                                    <option key={cat} value={cat}>
+                                                        {cat}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2. Pricing & Stock Columns */}
+                                <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                                    <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                        <FileSpreadsheet size={14} className="text-blue-600" />
+                                        <span>2. Pricing &amp; Inventory Columns</span>
+                                    </p>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        <div>
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                M.R.P. (₹) <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="e.g. 223.50"
+                                                value={addMedicineForm.mrp}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, mrp: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 font-bold text-xs"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-slate-700 mb-1">Cost Rate (₹)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="e.g. 175.20"
+                                                value={addMedicineForm.costPrice}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, costPrice: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                Selling Price (₹)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="Auto (12% OFF)"
+                                                value={addMedicineForm.sellingPrice}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, sellingPrice: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 font-bold text-emerald-700 text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-slate-700 mb-1">
+                                                Stock Quantity <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                placeholder="e.g. 50"
+                                                value={addMedicineForm.stockQuantity}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, stockQuantity: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:border-emerald-500 font-bold text-xs"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400">
+                                        💡 If selling price is left blank, it will be automatically calculated with Dhruv Pharma's 12% customer discount.
+                                    </p>
+                                </div>
+
+                                {/* 3. Compliance & Publishing Settings */}
+                                <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                                    <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                        <ShieldAlert size={14} className="text-purple-600" />
+                                        <span>3. Prescription &amp; Storefront Controls</span>
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <label className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-slate-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={addMedicineForm.requiresPrescription}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, requiresPrescription: e.target.checked })}
+                                                className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                                            />
+                                            <span className="font-semibold text-slate-700 text-xs">
+                                                Requires Doctor Rx
+                                            </span>
+                                        </label>
+
+                                        <label className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-slate-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={addMedicineForm.isPublished}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, isPublished: e.target.checked })}
+                                                className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                                            />
+                                            <span className="font-semibold text-slate-700 text-xs">
+                                                Put in Live Catalog
+                                            </span>
+                                        </label>
+
+                                        <label className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-slate-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={addMedicineForm.isVisible}
+                                                onChange={(e) => setAddMedicineForm({ ...addMedicineForm, isVisible: e.target.checked })}
+                                                className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                                            />
+                                            <span className="font-semibold text-slate-700 text-xs">
+                                                Show in Customer Store
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={isSubmittingMedicine}
+                                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold py-3.5 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 text-xs cursor-pointer"
+                                >
+                                    {isSubmittingMedicine ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            <span>Adding Medicine to Inventory...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Plus size={16} />
+                                            <span>Save &amp; Add Medicine to Inventory</span>
+                                        </>
+                                    )}
+                                </button>
+                            </form>
                         </div>
                     </div>
                 )}

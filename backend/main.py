@@ -1796,6 +1796,140 @@ def get_live_inventory(
     }
 
 
+class MedicineManualCreate(BaseModel):
+    itemCode: Optional[str] = None
+    name: str
+    company: Optional[str] = ""
+    salt: Optional[str] = ""
+    category: Optional[str] = "General Healthcare"
+    mrp: float = 0.0
+    costPrice: Optional[float] = 0.0
+    sellingPrice: Optional[float] = None
+    stockQuantity: int = 15
+    minStock: int = 15
+    requiresPrescription: bool = False
+    isPublished: bool = True   # True = Live Store Catalog, False = Drafts
+    isVisible: bool = True
+
+
+@app.post("/api/inventory/add")
+def add_inventory_medicine(
+    payload: MedicineManualCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Manually creates a new medicine in inventory / live catalog.
+    Fills all columns: Item Code, Name, Company, Salt, Category, MRP, Selling Price, Stock, Rx, Visibility.
+    """
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Medicine name is required.")
+
+    name_clean = payload.name.strip()
+    salt_clean = (payload.salt or "").strip()
+    company_clean = (payload.company or "").strip()
+
+    # Auto-resolve category if not provided or set to Auto
+    cat = payload.category
+    if not cat or cat in ["Auto", "All"]:
+        cat = categorize_medicine(name_clean, salt_clean, company_clean)
+
+    # Auto-resolve Item Code
+    item_code = (payload.itemCode or "").strip()
+    if not item_code:
+        last_item = db.query(MedicineModel).order_by(MedicineModel.id.desc()).first()
+        next_num = (last_item.id + 1001) if last_item else 1001
+        while db.query(MedicineModel).filter(MedicineModel.item_code == f"ITM-{next_num}").first():
+            next_num += 1
+        item_code = f"ITM-{next_num}"
+    else:
+        existing = db.query(MedicineModel).filter(MedicineModel.item_code == item_code).first()
+        if existing:
+            item_code = f"{item_code}-{uuid.uuid4().hex[:4].upper()}"
+
+    # Calculate selling price if not explicitly provided
+    mrp = round(float(payload.mrp or 0.0), 2)
+    cost = round(float(payload.costPrice or 0.0), 2)
+    if payload.sellingPrice is not None and payload.sellingPrice > 0:
+        selling = round(float(payload.sellingPrice), 2)
+    else:
+        selling = calculate_selling_price(mrp, cost)
+
+    pack_shot = resolve_brand_pack_shot(name_clean, company_clean)
+
+    new_med = MedicineModel(
+        item_code=item_code,
+        name=name_clean,
+        salt=salt_clean,
+        manufacturer=company_clean,
+        category=cat,
+        mrp=mrp,
+        cost_price=cost,
+        selling_price=selling,
+        stock_quantity=int(payload.stockQuantity or 0),
+        min_stock=int(payload.minStock or 15),
+        requires_prescription=bool(payload.requiresPrescription),
+        image_url=pack_shot or "",
+        is_published=bool(payload.isPublished),
+        is_visible=bool(payload.isVisible),
+        created_at=datetime.utcnow(),
+    )
+    db.add(new_med)
+    db.commit()
+    db.refresh(new_med)
+
+    return {
+        "success": True,
+        "message": f"Medicine '{new_med.name}' ({new_med.item_code}) added successfully to {'Live Store Catalog' if new_med.is_published else 'Drafts'}!",
+        "item": new_med.to_dict(),
+    }
+
+
+@app.get("/api/inventory/export-csv")
+def export_inventory_csv(db: Session = Depends(get_db)):
+    """Exports all inventory medicines with all columns to a CSV spreadsheet."""
+    import io
+    import csv
+
+    items = db.query(MedicineModel).order_by(MedicineModel.id.asc()).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ItemCode",
+        "Name",
+        "Company",
+        "Salt",
+        "Category",
+        "M.R.P.",
+        "CostPrice",
+        "SellingPrice",
+        "Stock",
+        "RequiresPrescription",
+        "Status",
+        "ShowInStore",
+    ])
+    for it in items:
+        writer.writerow([
+            it.item_code or f"ITM-{it.id}",
+            it.name,
+            it.manufacturer or "",
+            it.salt or "",
+            it.category or "General Healthcare",
+            f"{it.mrp:.2f}" if it.mrp else "0.00",
+            f"{it.cost_price:.2f}" if it.cost_price else "0.00",
+            f"{it.selling_price:.2f}" if it.selling_price else "0.00",
+            it.stock_quantity or 0,
+            "Yes" if it.requires_prescription else "No",
+            "Live" if it.is_published else "Draft",
+            "Visible" if it.is_visible else "Hidden",
+        ])
+    output.seek(0)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=DHRUV_PHARMA_INVENTORY_CATALOG.csv"}
+    )
+
+
 class MedicineUpdateRequest(BaseModel):
     category: Optional[str] = None
     selling_price: Optional[float] = None
