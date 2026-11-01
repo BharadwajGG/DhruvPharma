@@ -225,6 +225,9 @@ function ShowcaseMedicineCard({ medicine, badgeLabel, badgeType }) {
     )
 }
 
+/* ── In-Memory Cache to preserve Instant Full-Height Rendering on Back-Navigation ── */
+let cachedHomeShowcase = null
+
 /* ── Main Home Page ── */
 export default function HomePage() {
     const categoryScrollRef = useRef(null)
@@ -232,9 +235,9 @@ export default function HomePage() {
     const newLaunchesScrollRef = useRef(null)
     const reviewsScrollRef = useRef(null)
 
-    // Dynamic Showcase Data (Trending & New Launches)
-    const [showcaseData, setShowcaseData] = useState({ trending: [], new_launches: [] })
-    const [isLoadingShowcase, setIsLoadingShowcase] = useState(true)
+    // Dynamic Showcase Data (Trending & New Launches) - rendered instantly if cached
+    const [showcaseData, setShowcaseData] = useState(() => cachedHomeShowcase || { trending: [], new_launches: [] })
+    const [isLoadingShowcase, setIsLoadingShowcase] = useState(!cachedHomeShowcase)
 
     useEffect(() => {
         const fetchShowcase = async () => {
@@ -242,6 +245,7 @@ export default function HomePage() {
                 const res = await fetch('http://localhost:8000/api/medicines/showcase')
                 if (res.ok) {
                     const data = await res.json()
+                    cachedHomeShowcase = data
                     setShowcaseData(data)
                 }
             } catch (err) {

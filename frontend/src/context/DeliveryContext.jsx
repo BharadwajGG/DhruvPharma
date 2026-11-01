@@ -3,13 +3,13 @@ import { createContext, useContext, useState, useEffect } from 'react'
 const DeliveryContext = createContext(null)
 
 export const SERVICEABLE_AREAS = [
-    { id: 1, name: 'Nandurbar', pincode: '425412', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.3697, lng: 74.2389 },
-    { id: 2, name: 'Shahada',   pincode: '425409', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.5458, lng: 74.4715 },
-    { id: 3, name: 'Taloda',    pincode: '425413', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.4833, lng: 74.2167 },
-    { id: 4, name: 'Nijampur',  pincode: '424305', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 21.0500, lng: 74.3333 },
-    { id: 5, name: 'Akkalkuwa', pincode: '425415', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.5500, lng: 74.0167 },
-    { id: 6, name: 'Shirpur',   pincode: '424405', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 21.3500, lng: 74.8833 },
-    { id: 7, name: 'Sakri',     pincode: '424304', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 20.9833, lng: 74.3167 },
+    { id: 1, name: 'Nandurbar', pincode: '425412', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.3697, lng: 74.2389, isServiceable: true },
+    { id: 2, name: 'Shahada',   pincode: '425409', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.5458, lng: 74.4715, isServiceable: true },
+    { id: 3, name: 'Taloda',    pincode: '425413', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.4833, lng: 74.2167, isServiceable: true },
+    { id: 4, name: 'Nijampur',  pincode: '424305', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 21.0500, lng: 74.3333, isServiceable: true },
+    { id: 5, name: 'Akkalkuwa', pincode: '425415', district: 'Nandurbar', deliveryTime: '3–4 Days', lat: 21.5500, lng: 74.0167, isServiceable: true },
+    { id: 6, name: 'Shirpur',   pincode: '424405', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 21.3500, lng: 74.8833, isServiceable: true },
+    { id: 7, name: 'Sakri',     pincode: '424304', district: 'Dhule',      deliveryTime: '3–4 Days', lat: 20.9833, lng: 74.3167, isServiceable: true },
 ]
 
 const STORAGE_KEY = 'dhruvpharma_delivery_location'
@@ -95,7 +95,7 @@ export function DeliveryProvider({ children }) {
                     const lat = pos.coords.latitude
                     const lng = pos.coords.longitude
 
-                    // Reverse geocode via BigDataCloud client API (free, fast, no API key needed)
+                    // Reverse geocode via BigDataCloud client API
                     let geoInfo = null
                     try {
                         const res = await fetch(
@@ -103,10 +103,16 @@ export function DeliveryProvider({ children }) {
                         )
                         if (res.ok) {
                             const data = await res.json()
+                            const rawPin = (data.postcode || '').replace(/\D/g, '')
+                            // Extract actual district name (e.g. Pune, Nandurbar, Dhule)
+                            const adminDistrict = data.localityInfo?.administrative?.find(
+                                (a) => a.adminLevel === 6 || a.adminLevel === 5 || (a.name && a.name.toLowerCase().includes('district'))
+                            )?.name?.replace(/district/i, '').trim() || data.city || data.locality || 'Outside Area'
+
                             geoInfo = {
-                                city: data.city || data.locality || data.principalSubdivision || 'Detected City',
-                                postcode: (data.postcode || '').replace(/\D/g, ''),
-                                district: data.principalSubdivision || 'Maharashtra',
+                                city: data.city || data.locality || 'Your Location',
+                                postcode: rawPin.length === 6 ? rawPin : '',
+                                district: adminDistrict,
                             }
                         }
                     } catch (e) {
@@ -144,8 +150,8 @@ export function DeliveryProvider({ children }) {
                         }
                     }
 
-                    // Case B: User is within 45km of one of the 7 hubs (Khandesh / Nandurbar-Dhule area)
-                    if (minDistance <= 45) {
+                    // Case B: User is within 35km of one of the 7 hubs (Khandesh / Nandurbar-Dhule area)
+                    if (minDistance <= 35) {
                         const hubWithDetectedCity = {
                             ...closestHub,
                             detectedCity: geoInfo?.city || closestHub.name,
@@ -158,18 +164,19 @@ export function DeliveryProvider({ children }) {
                         resolve({
                             success: true,
                             area: hubWithDetectedCity,
-                            message: `GPS Detected: ${geoInfo?.city || 'Your area'} (${geoInfo?.postcode || 'GPS'}). Assigned to nearest hub: ${closestHub.name} (${minDistance.toFixed(0)} km away).`,
+                            message: `GPS Detected: ${geoInfo?.city || 'Your area'}. Nearest authorized hub: ${closestHub.name} (${minDistance.toFixed(0)} km away).`,
                         })
                         return
                     }
 
-                    // Case C: User is in another city (e.g. Pune, Mumbai, Delhi, etc.)
+                    // Case C: User is in another city outside the 7 authorized locations (e.g. Pune, Haveli, Mumbai)
                     const detectedArea = {
-                        id: 'gps-custom',
+                        id: 'gps-outside',
                         name: geoInfo?.city || 'Current Location',
-                        pincode: geoInfo?.postcode || 'Detected',
-                        district: geoInfo?.district || 'Outside Hub',
+                        pincode: geoInfo?.postcode || '',
+                        district: geoInfo?.district || 'Outside Area',
                         deliveryTime: 'Out of Delivery Range',
+                        isServiceable: false,
                         isOutside: true,
                         nearestHub: closestHub.name,
                     }
@@ -179,9 +186,9 @@ export function DeliveryProvider({ children }) {
                     } catch (e) {}
 
                     resolve({
-                        success: true,
+                        success: false,
                         area: detectedArea,
-                        message: `GPS Detected: ${detectedArea.name} (${detectedArea.pincode}). Nearest Dhruv Pharma hub is ${closestHub.name} (${minDistance.toFixed(0)} km away).`,
+                        message: `Online cart orders are currently limited strictly to our 7 authorized hubs (Nandurbar & Dhule). For delivery to ${detectedArea.name}, please contact the pharmacy owner via WhatsApp or Phone Call!`,
                     })
                 },
                 (err) => {

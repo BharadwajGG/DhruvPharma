@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCart } from '../context/CartContext'
 import { useWishlist } from '../context/WishlistContext'
 import { useDelivery } from '../context/DeliveryContext'
+import MedicineImage from './MedicineImage'
+import { INITIAL_CATALOG } from '../data/fallbackMedicines'
 import {
     ShoppingCart,
     Heart,
@@ -36,10 +38,15 @@ const NAV_LINKS = [
     { label: 'Contact Us',          path: '/contact' },
 ]
 
+// In-memory catalog cache for 0ms instant search auto-recommendations
+let cachedNavCatalog = null
+
 export default function Navbar() {
     const [menuOpen, setMenuOpen]                   = useState(false)
     const [loginDropdownOpen, setLoginDropdownOpen] = useState(false)
     const [searchQuery, setSearchQuery]             = useState('')
+    const [searchFocused, setSearchFocused]         = useState(false)
+    const [navMedicines, setNavMedicines]           = useState(() => cachedNavCatalog || INITIAL_CATALOG || [])
 
     const location = useLocation()
     const navigate = useNavigate()
@@ -49,6 +56,83 @@ export default function Navbar() {
 
     const dropdownRef = useRef(null)
     const locationRef = useRef(null)
+    const searchBoxRef = useRef(null)
+
+    // Preload catalog medicines for instant auto-recommendations
+    useEffect(() => {
+        if (cachedNavCatalog && cachedNavCatalog.length > 0) return
+        const fetchCatalog = async () => {
+            try {
+                const res = await fetch('http://localhost:8000/api/medicines')
+                if (res.ok) {
+                    const data = await res.json()
+                    if (Array.isArray(data) && data.length > 0) {
+                        cachedNavCatalog = data
+                        setNavMedicines(data)
+                    }
+                }
+            } catch (e) {
+                // Silently retain INITIAL_CATALOG if offline
+            }
+        }
+        fetchCatalog()
+    }, [])
+
+    // Top trending medicines shown when search input is focused with 0 text
+    const trendingMedicines = useMemo(() => {
+        const pool = navMedicines && navMedicines.length > 0 ? navMedicines : INITIAL_CATALOG
+        return (pool || []).slice(0, 5)
+    }, [navMedicines])
+
+    // Smart Case-Insensitive Multi-Field Auto-Recommendation Matcher (starts at 1 letter)
+    const searchMatches = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase()
+        if (!q || q.length < 1) return []
+
+        const pool = navMedicines && navMedicines.length > 0 ? navMedicines : INITIAL_CATALOG
+        const exactPrefix = []
+        const nameMatches = []
+        const saltMatches = []
+
+        for (const m of pool) {
+            const name = (m.name || '').toLowerCase()
+            const salt = (m.salt || '').toLowerCase()
+            const brand = (m.brand || m.manufacturer || '').toLowerCase()
+
+            if (name.startsWith(q)) {
+                exactPrefix.push(m)
+            } else if (name.includes(q) || brand.includes(q)) {
+                nameMatches.push(m)
+            } else if (salt.includes(q)) {
+                saltMatches.push(m)
+            }
+
+            if (exactPrefix.length + nameMatches.length + saltMatches.length >= 25) break
+        }
+
+        return [...exactPrefix, ...nameMatches, ...saltMatches].slice(0, 5)
+    }, [searchQuery, navMedicines])
+
+    const isMedicineStore = location.pathname === '/medicines'
+
+    const triggerSearch = (queryStr) => {
+        const q = (queryStr !== undefined ? queryStr : searchQuery).trim()
+        if (!q) return
+        setSearchFocused(false)
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur()
+        }
+        navigate(`/medicines?q=${encodeURIComponent(q)}`)
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+
+    const handleSearchSubmit = (e) => {
+        if (e) {
+            e.preventDefault()
+            e.stopPropagation()
+        }
+        triggerSearch(searchQuery)
+    }
 
     // ── Delivery Location Popover State (Deliver to ⌵) ──
     const {
@@ -60,7 +144,22 @@ export default function Navbar() {
     } = useDelivery()
     const [locationPopoverOpen, setLocationPopoverOpen] = useState(false)
     const [pinInput, setPinInput] = useState('')
-    const [pinFeedback, setPinFeedback] = useState(null)
+    const [toast, setToast] = useState(null)
+    const toastTimeoutRef = useRef(null)
+
+    const showToast = (message, type = 'info', duration = 4000) => {
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+        setToast({ message, type })
+        toastTimeoutRef.current = setTimeout(() => {
+            setToast(null)
+        }, duration)
+    }
+
+    useEffect(() => {
+        return () => {
+            if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+        }
+    }, [])
 
     // Close popovers on click outside
     useEffect(() => {
@@ -71,6 +170,9 @@ export default function Navbar() {
             if (locationRef.current && !locationRef.current.contains(event.target)) {
                 setLocationPopoverOpen(false)
             }
+            if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) {
+                setSearchFocused(false)
+            }
         }
         document.addEventListener('mousedown', handleClickOutside)
         return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -79,43 +181,27 @@ export default function Navbar() {
     const handleVerifyPin = (e) => {
         if (e) e.preventDefault()
         if (!pinInput || pinInput.trim().length !== 6) {
-            setPinFeedback({
-                success: false,
-                message: 'Please enter a valid 6-digit PIN code.',
-            })
+            showToast('Please enter a valid 6-digit PIN code.', 'warning', 3500)
             return
         }
 
         const res = setLocationByPincode(pinInput.trim())
-        setPinFeedback(res)
-        if (res.success) {
-            setTimeout(() => {
-                setLocationPopoverOpen(false)
-                setPinFeedback(null)
-                setPinInput('')
-            }, 1800)
-        }
+        setLocationPopoverOpen(false)
+        setPinInput('')
+        showToast(res.message, res.success ? 'success' : 'warning', 4500)
     }
 
     const handleSelectArea = (area) => {
         const res = setLocationByPincode(area.pincode)
-        setPinFeedback(res)
-        setTimeout(() => {
-            setLocationPopoverOpen(false)
-            setPinFeedback(null)
-            setPinInput('')
-        }, 1200)
+        setLocationPopoverOpen(false)
+        setPinInput('')
+        showToast(res.message, 'success', 3500)
     }
 
     const handleDetectLocation = async () => {
         const res = await detectCurrentLocation()
-        setPinFeedback(res)
-        if (res.success) {
-            setTimeout(() => {
-                setLocationPopoverOpen(false)
-                setPinFeedback(null)
-            }, 1800)
-        }
+        setLocationPopoverOpen(false)
+        showToast(res.message, res.success ? 'success' : 'warning', 4500)
     }
 
     // Close dropdown on route change
@@ -186,7 +272,15 @@ export default function Navbar() {
             <div className="max-w-7xl mx-auto px-4 py-2.5 sm:py-3 flex items-center justify-between gap-3 sm:gap-4">
 
                 {/* Logo */}
-                <Link to="/" className="flex items-center gap-2.5 shrink-0 group">
+                <Link
+                    to="/"
+                    onClick={() => {
+                        if (location.pathname === '/') {
+                            window.scrollTo({ top: 0, behavior: 'smooth' })
+                        }
+                    }}
+                    className="flex items-center gap-2.5 shrink-0 group"
+                >
                     <div className="bg-blue-600 group-hover:bg-blue-700 text-white p-2 rounded-xl transition-all shadow-xs group-hover:scale-105">
                         <Pill size={22} />
                     </div>
@@ -203,25 +297,33 @@ export default function Navbar() {
 
                 {/* ── Unified Search & Delivery Bar (desktop) ── */}
                 <div
-                    className="hidden md:flex flex-1 max-w-2xl items-center border border-gray-300 rounded-2xl bg-white shadow-2xs hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 transition-all relative"
+                    className={`hidden md:flex items-center rounded-2xl bg-white shadow-2xs transition-all duration-300 ease-in-out relative ${
+                        isMedicineStore
+                            ? 'border border-gray-200 hover:border-blue-400'
+                            : 'flex-1 max-w-2xl border border-gray-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100'
+                    }`}
                     ref={locationRef}
                 >
-                    {/* 📍 Deliver to Pill (Matches Truemeds UI from User Image 1) */}
+                    {/* 📍 Deliver to Pill */}
                     <button
                         type="button"
                         onClick={() => setLocationPopoverOpen(!locationPopoverOpen)}
-                        className="flex items-center gap-1.5 px-3.5 py-2.5 hover:bg-gray-50 border-r border-gray-200 text-xs font-semibold text-gray-800 transition-colors shrink-0 cursor-pointer rounded-l-2xl"
+                        className={`flex items-center gap-1.5 px-3.5 py-2.5 hover:bg-gray-50 text-xs font-semibold text-gray-800 transition-all shrink-0 cursor-pointer ${
+                            isMedicineStore ? 'rounded-2xl border-none' : 'border-r border-gray-200 rounded-l-2xl'
+                        }`}
                         title="Check and select delivery location"
                     >
                         <MapPin size={15} className="text-blue-600 shrink-0" />
                         <span className="text-gray-500 font-normal">Deliver to</span>
-                        <span className="font-bold text-gray-900 truncate max-w-[125px]">
-                            {selectedLocation.name} ({selectedLocation.pincode})
+                        <span className="font-bold text-gray-900 truncate max-w-[130px]">
+                            {selectedLocation?.pincode && /^\d{6}$/.test(String(selectedLocation.pincode))
+                                ? `${selectedLocation.name} (${selectedLocation.pincode})`
+                                : (selectedLocation?.name || 'Select Location')}
                         </span>
                         <ChevronDown size={13} className={`text-gray-400 transition-transform ${locationPopoverOpen ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {/* Location Popover Card (Matches Image 1) */}
+                    {/* Location Popover Card */}
                     {locationPopoverOpen && (
                         <div className="absolute top-full left-0 mt-2 w-84 sm:w-96 bg-white rounded-3xl border border-gray-100 shadow-2xl p-5 z-50 space-y-4 animate-in fade-in slide-in-from-top-2 text-left">
                             <div className="flex items-center justify-between pb-1 border-b border-gray-100">
@@ -232,7 +334,7 @@ export default function Navbar() {
                                 <button
                                     type="button"
                                     onClick={() => setLocationPopoverOpen(false)}
-                                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+                                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 cursor-pointer"
                                 >
                                     <X size={15} />
                                 </button>
@@ -258,25 +360,6 @@ export default function Navbar() {
                                     </button>
                                 </div>
                             </form>
-
-                            {/* Feedback Message */}
-                            {pinFeedback && (
-                                <div className={`p-3 rounded-xl text-xs flex items-start gap-2 animate-in fade-in ${
-                                    pinFeedback.success
-                                        ? 'bg-green-50 border border-green-200 text-green-800'
-                                        : 'bg-red-50 border border-red-200 text-red-700'
-                                }`}>
-                                    {pinFeedback.success ? (
-                                        <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
-                                    ) : (
-                                        <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                                    )}
-                                    <div>
-                                        <p className="font-bold">{pinFeedback.success ? 'Delivery Available' : 'Unserviceable Area'}</p>
-                                        <p className="text-[11px] leading-relaxed mt-0.5">{pinFeedback.message}</p>
-                                    </div>
-                                </div>
-                            )}
 
                             {/* Quick 7 Serviceable Hubs Selection Chips */}
                             <div className="space-y-2">
@@ -343,21 +426,223 @@ export default function Navbar() {
                         </div>
                     )}
 
-                    {/* Search Input */}
-                    <Search size={16} className="ml-3 text-gray-400 shrink-0" />
-                    <input
-                        type="text"
-                        placeholder="Search medicines, health products..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="flex-1 px-3 py-2.5 text-xs outline-none bg-transparent"
-                    />
-                    <Link
-                        to={`/medicines?q=${searchQuery}`}
-                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2.5 font-semibold transition-colors rounded-r-2xl"
+                    {/* Search Input Container - Smoothly disappears when on Medicine Store */}
+                    <div
+                        className={`transition-all duration-300 ease-in-out flex items-center ${
+                            isMedicineStore
+                                ? 'w-0 max-w-0 opacity-0 pointer-events-none scale-95 invisible overflow-hidden'
+                                : 'flex-1 max-w-full opacity-100 scale-100 visible'
+                        }`}
                     >
-                        Search
-                    </Link>
+                        <form
+                            onSubmit={handleSearchSubmit}
+                            ref={searchBoxRef}
+                            className="flex-1 flex items-center relative w-full"
+                        >
+                            <Search size={16} className="ml-3 text-gray-400 shrink-0" />
+                            <input
+                                type="text"
+                                placeholder="Search medicines, salts, health products..."
+                                value={searchQuery}
+                                onFocus={() => setSearchFocused(true)}
+                                onChange={(e) => {
+                                    setSearchQuery(e.target.value)
+                                    setSearchFocused(true)
+                                }}
+                                className="flex-1 px-3 py-2.5 text-xs outline-none bg-transparent"
+                            />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchQuery('')
+                                        setSearchFocused(false)
+                                    }}
+                                    className="p-1 mr-1 text-gray-400 hover:text-gray-600 rounded-full cursor-pointer"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                            <button
+                                type="submit"
+                                className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2.5 font-semibold transition-colors rounded-r-2xl cursor-pointer shrink-0"
+                            >
+                                Search
+                            </button>
+
+                            {/* Floating Live Auto-Recommendation Dropdown */}
+                            {searchFocused && (
+                                <div className="absolute top-full left-0 right-0 mt-2 bg-white/98 backdrop-blur-xl rounded-2xl border border-slate-200/90 shadow-2xl p-2.5 z-50 animate-in fade-in slide-in-from-top-1 text-left">
+                                    {searchQuery.trim().length >= 1 ? (
+                                        searchMatches.length > 0 ? (
+                                            <div>
+                                                <div className="px-2.5 py-1.5 flex items-center justify-between text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 mb-1">
+                                                    <span className="flex items-center gap-1.5">
+                                                        <Sparkles size={11} className="text-blue-500" />
+                                                        Suggested Medicines
+                                                    </span>
+                                                    <span className="text-blue-600 font-semibold lowercase">instant match</span>
+                                                </div>
+
+                                                <div className="space-y-1">
+                                                    {searchMatches.map((med) => {
+                                                        const price = med.price || med.sellingPrice || 0
+                                                        const requiresRx = Boolean(med.requires_rx || med.requiresPrescription)
+                                                        return (
+                                                            <div
+                                                                key={med.id}
+                                                                onMouseDown={(e) => {
+                                                                    e.preventDefault()
+                                                                    e.stopPropagation()
+                                                                    setSearchFocused(false)
+                                                                    setSearchQuery('')
+                                                                    navigate(`/medicines/${med.id}`)
+                                                                }}
+                                                                onClick={(e) => {
+                                                                    e.preventDefault()
+                                                                    e.stopPropagation()
+                                                                    setSearchFocused(false)
+                                                                    setSearchQuery('')
+                                                                    navigate(`/medicines/${med.id}`)
+                                                                }}
+                                                                className="flex items-center gap-3 p-2 hover:bg-blue-50/70 rounded-xl cursor-pointer transition-colors group border border-transparent hover:border-blue-100"
+                                                            >
+                                                                <div className="w-10 h-10 rounded-lg bg-slate-50 border border-gray-100 p-0.5 shrink-0 overflow-hidden flex items-center justify-center">
+                                                                    <MedicineImage medicine={med} aspectRatio="square" />
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <h4 className="text-xs font-bold text-gray-900 group-hover:text-blue-700 truncate">
+                                                                            {med.name}
+                                                                        </h4>
+                                                                        <span className="text-xs font-black text-gray-900 shrink-0">
+                                                                            ₹{price}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between gap-1 mt-0.5">
+                                                                        <p className="text-[10px] text-gray-500 italic truncate font-mono">
+                                                                            {med.salt || med.category || 'Dhruv Genuine'}
+                                                                        </p>
+                                                                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded shrink-0 ${
+                                                                            requiresRx
+                                                                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                                                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                                        }`}>
+                                                                            {requiresRx ? 'Rx Needed' : 'Direct Buy'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+
+                                                {/* Action Button: Search all catalog results */}
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        triggerSearch(searchQuery)
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        triggerSearch(searchQuery)
+                                                    }}
+                                                    className="w-full mt-2 py-2.5 px-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-between cursor-pointer group"
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Search size={13} className="text-blue-200" />
+                                                        <span>Search all catalog results for <span className="underline decoration-blue-300 font-extrabold">"{searchQuery}"</span></span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 text-[11px] font-semibold text-blue-100 group-hover:translate-x-1 transition-transform">
+                                                        <span>View all</span>
+                                                        <ArrowRight size={13} />
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 text-center space-y-2">
+                                                <p className="text-xs font-bold text-gray-800">No instant preview for "{searchQuery}"</p>
+                                                <p className="text-[11px] text-gray-500">Search full store catalog to find matches across all medicines</p>
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        triggerSearch(searchQuery)
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        triggerSearch(searchQuery)
+                                                    }}
+                                                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                                                >
+                                                    <Search size={13} />
+                                                    <span>Search Full Store Catalog for "{searchQuery}"</span>
+                                                </button>
+                                            </div>
+                                        )
+                                    ) : (
+                                        /* Zero text: Trending & Popular Medicines */
+                                        <div>
+                                            <div className="px-2.5 py-1.5 flex items-center justify-between text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 mb-1">
+                                                <span className="flex items-center gap-1.5">
+                                                    <Sparkles size={11} className="text-amber-500" />
+                                                    Popular &amp; Frequent Searches
+                                                </span>
+                                                <span className="text-emerald-600 font-semibold lowercase">trending</span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                {trendingMedicines.map((med) => {
+                                                    const price = med.price || med.sellingPrice || 0
+                                                    return (
+                                                        <div
+                                                            key={med.id}
+                                                            onMouseDown={(e) => {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                setSearchFocused(false)
+                                                                setSearchQuery('')
+                                                                navigate(`/medicines/${med.id}`)
+                                                            }}
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                setSearchFocused(false)
+                                                                setSearchQuery('')
+                                                                navigate(`/medicines/${med.id}`)
+                                                            }}
+                                                            className="flex items-center gap-3 p-2 hover:bg-blue-50/70 rounded-xl cursor-pointer transition-colors group border border-transparent hover:border-blue-100"
+                                                        >
+                                                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-gray-100 p-0.5 shrink-0 overflow-hidden flex items-center justify-center">
+                                                                <MedicineImage medicine={med} aspectRatio="square" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <h4 className="text-xs font-bold text-gray-900 group-hover:text-blue-700 truncate">
+                                                                        {med.name}
+                                                                    </h4>
+                                                                    <span className="text-xs font-black text-gray-900 shrink-0">
+                                                                        ₹{price}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-[10px] text-gray-500 italic truncate font-mono mt-0.5">
+                                                                    {med.salt || med.category}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </form>
+                    </div>
                 </div>
 
                 {/* Right Actions */}
@@ -612,6 +897,11 @@ export default function Navbar() {
                             <li key={link.path}>
                                 <Link
                                     to={link.path}
+                                    onClick={() => {
+                                        if (location.pathname === link.path) {
+                                            window.scrollTo({ top: 0, behavior: 'smooth' })
+                                        }
+                                    }}
                                     className={`block px-4 py-3 text-sm font-medium transition-colors border-b-2
                                         ${isActive(link.path)
                                             ? 'text-blue-600 border-blue-600'
@@ -641,7 +931,13 @@ export default function Navbar() {
                         >
                             <div className="flex items-center gap-2 truncate">
                                 <MapPin size={14} className="text-blue-600 shrink-0" />
-                                <span>Deliver to: <strong>{selectedLocation.name} ({selectedLocation.pincode})</strong></span>
+                                <span>
+                                    Deliver to: <strong>
+                                        {selectedLocation?.pincode && /^\d{6}$/.test(String(selectedLocation.pincode))
+                                            ? `${selectedLocation.name} (${selectedLocation.pincode})`
+                                            : (selectedLocation?.name || 'Select Location')}
+                                    </strong>
+                                </span>
                             </div>
                             <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold shrink-0">
                                 3–4 Days
@@ -649,19 +945,33 @@ export default function Navbar() {
                         </button>
                     </div>
 
-                    {/* Mobile Search */}
-                    <div className="px-4 pt-3 pb-2">
-                        <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
-                            <Search size={16} className="ml-3 text-gray-400" />
-                            <input
-                                type="text"
-                                placeholder="Search medicines..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="flex-1 px-3 py-2.5 text-sm outline-none"
-                            />
+                    {/* Mobile Search (Hidden on Medicine Store to avoid duplicate search inputs) */}
+                    {!isMedicineStore && (
+                        <div className="px-4 pt-3 pb-2">
+                            <form
+                                onSubmit={(e) => {
+                                    handleSearchSubmit(e)
+                                    setMenuOpen(false)
+                                }}
+                                className="flex items-center border border-gray-300 rounded-xl overflow-hidden bg-white shadow-2xs"
+                            >
+                                <Search size={16} className="ml-3 text-gray-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search medicines, salts..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="flex-1 px-3 py-2.5 text-sm outline-none bg-transparent"
+                                />
+                                <button
+                                    type="submit"
+                                    className="bg-blue-600 text-white text-xs px-3.5 py-2.5 font-bold"
+                                >
+                                    Search
+                                </button>
+                            </form>
                         </div>
-                    </div>
+                    )}
 
                     {/* Mobile Login Options */}
                     <div className="px-4 py-2 border-b border-gray-100 bg-slate-50">
@@ -725,6 +1035,42 @@ export default function Navbar() {
                             </li>
                         ))}
                     </ul>
+                </div>
+            )}
+
+            {/* ── Screen Floating Toast Notification (Delivery & Notice Alert) ── */}
+            {toast && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] max-w-md w-[92%] sm:w-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div className={`flex items-start gap-3 p-3.5 sm:p-4 rounded-2xl shadow-2xl border backdrop-blur-xl ${
+                        toast.type === 'success'
+                            ? 'bg-slate-900/95 text-white border-emerald-500/50 shadow-emerald-950/20'
+                            : 'bg-slate-900/95 text-white border-amber-500/50 shadow-slate-950/40'
+                    }`}>
+                        {toast.type === 'success' ? (
+                            <div className="p-1 rounded-full bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
+                                <CheckCircle2 size={18} />
+                            </div>
+                        ) : (
+                            <div className="p-1 rounded-full bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                                <AlertCircle size={18} />
+                            </div>
+                        )}
+                        <div className="flex-1 text-xs sm:text-sm">
+                            <p className="font-bold text-white tracking-wide">
+                                {toast.type === 'success' ? 'Delivery Available' : 'Service Notice'}
+                            </p>
+                            <p className="text-slate-200 mt-0.5 leading-relaxed text-xs">
+                                {toast.message}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setToast(null)}
+                            className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors shrink-0 cursor-pointer"
+                        >
+                            <X size={15} />
+                        </button>
+                    </div>
                 </div>
             )}
         </header>

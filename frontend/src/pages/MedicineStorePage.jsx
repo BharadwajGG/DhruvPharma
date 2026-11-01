@@ -234,11 +234,15 @@ const MedicineCard = memo(function MedicineCard({ medicine }) {
     )
 })
 
+/* ── In-Memory Cache to preserve Catalog & Pagination Position on Back-Navigation ── */
+let cachedStoreMedicines = null
+let cachedStoreVisibleCount = 24
+
 /* ── Main Store Page ── */
 export default function MedicineStorePage() {
     const [searchParams] = useSearchParams()
-    const [medicines, setMedicines] = useState([])
-    const [isLoading, setIsLoading] = useState(true)
+    const [medicines, setMedicines] = useState(() => cachedStoreMedicines || [])
+    const [isLoading, setIsLoading] = useState(!cachedStoreMedicines)
     const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
     const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('q') || '')
     const [activeCategory, setActiveCategory] = useState(searchParams.get('category') || 'All')
@@ -247,7 +251,14 @@ export default function MedicineStorePage() {
     const [rxFilter, setRxFilter] = useState('all') // 'all' | 'rx' | 'otc'
     const [inStockOnly, setInStockOnly] = useState(false)
     const [maxPrice, setMaxPrice] = useState(1000)
-    const [visibleCount, setVisibleCount] = useState(24)
+    const [visibleCount, setVisibleCount] = useState(() => cachedStoreVisibleCount || 24)
+
+    // Keep search query in sync with URL search parameter changes
+    useEffect(() => {
+        const urlQ = searchParams.get('q') || ''
+        setSearchQuery(urlQ)
+        setDebouncedSearch(urlQ)
+    }, [searchParams])
 
     // Debounce search keystrokes to ensure 60 FPS input smoothness
     useEffect(() => {
@@ -257,9 +268,16 @@ export default function MedicineStorePage() {
         return () => clearTimeout(handler)
     }, [searchQuery])
 
-    // Reset pagination batch to initial 24 whenever search or filters change
+    // Update cached visible count whenever it increases
     useEffect(() => {
-        setVisibleCount(24)
+        cachedStoreVisibleCount = visibleCount
+    }, [visibleCount])
+
+    // Reset pagination batch to initial 24 only when explicit search or filters change
+    useEffect(() => {
+        if (debouncedSearch || activeCategory !== 'All' || rxFilter !== 'all' || inStockOnly || maxPrice < 1000) {
+            setVisibleCount(24)
+        }
     }, [debouncedSearch, activeCategory, sortBy, rxFilter, inStockOnly, maxPrice])
 
     // Fetch live published medicines from backend
@@ -268,7 +286,9 @@ export default function MedicineStorePage() {
         const timeoutId = setTimeout(() => controller.abort(), 6000)
 
         const fetchMedicines = async () => {
-            setIsLoading(true)
+            if (!cachedStoreMedicines) {
+                setIsLoading(true)
+            }
             try {
                 const res = await fetch('http://localhost:8000/api/medicines', {
                     signal: controller.signal,
@@ -277,14 +297,15 @@ export default function MedicineStorePage() {
                 if (res.ok) {
                     const data = await res.json()
                     if (Array.isArray(data) && data.length > 0) {
+                        cachedStoreMedicines = data
                         setMedicines(data)
                         return
                     }
                 }
-                setMedicines(FALLBACK_MEDICINES)
+                if (!cachedStoreMedicines) setMedicines(FALLBACK_MEDICINES)
             } catch (err) {
                 console.warn('Backend unavailable or timed out, using fallback medicines:', err)
-                setMedicines(FALLBACK_MEDICINES)
+                if (!cachedStoreMedicines) setMedicines(FALLBACK_MEDICINES)
             } finally {
                 clearTimeout(timeoutId)
                 setIsLoading(false)

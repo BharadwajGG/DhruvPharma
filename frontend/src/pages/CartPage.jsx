@@ -56,30 +56,18 @@ export default function CartPage() {
     // Flow Step: 'cart' (Review Items) or 'checkout' (Enter Details)
     const [step, setStep] = useState('cart')
 
-    // Checkout Form State (defaults to user's selected delivery location)
+    // Checkout Form State (Only email is auto-filled from login; other fields must be entered manually by user)
     const [formData, setFormData] = useState({
-        customerName: currentUser?.displayName || '',
-        phone: localStorage.getItem('dhruv_user_phone') || '',
+        customerName: '',
+        phone: '',
         email: currentUser?.email || '',
-        district: selectedLocation?.district || 'Nandurbar',
-        areaName: selectedLocation?.name || 'Nandurbar',
+        district: '',
+        areaName: '',
         address: '',
-        pincode: selectedLocation?.pincode || '425412',
+        pincode: '',
         paymentMethod: 'COD', // 'COD' | 'UPI_QR' | 'CASHFREE'
         notes: '',
     })
-
-    // Keep form in sync when user changes selected delivery location
-    useEffect(() => {
-        if (selectedLocation) {
-            setFormData((prev) => ({
-                ...prev,
-                pincode: prev.pincode || selectedLocation.pincode,
-                areaName: prev.areaName || selectedLocation.name,
-                district: prev.district || selectedLocation.district,
-            }))
-        }
-    }, [selectedLocation])
 
     const [rxFile, setRxFile] = useState(null)
     const [coupon, setCoupon] = useState('')
@@ -109,7 +97,7 @@ export default function CartPage() {
         fetchPublicCoupons()
     }, [])
 
-    // Load saved addresses on mount
+    // Load saved addresses on mount (for optional manual selection, not auto-filled)
     useEffect(() => {
         const storedAddrs = localStorage.getItem('dhruv_saved_addresses')
         if (storedAddrs) {
@@ -117,17 +105,6 @@ export default function CartPage() {
                 const parsed = JSON.parse(storedAddrs)
                 if (Array.isArray(parsed) && parsed.length > 0) {
                     setSavedAddresses(parsed)
-                    const def = parsed.find((a) => a.isDefault) || parsed[0]
-                    if (def && !formData.address) {
-                        setFormData((prev) => ({
-                            ...prev,
-                            address: def.address,
-                            pincode: def.pincode,
-                            district: def.district || prev.district,
-                            areaName: def.areaName || prev.areaName,
-                        }))
-                        setLocationByPincode(def.pincode)
-                    }
                 }
             } catch (e) {}
         }
@@ -204,15 +181,16 @@ export default function CartPage() {
         const errors = {}
         if (!formData.customerName.trim()) errors.customerName = 'Patient / Customer name is required'
         if (!formData.phone.trim() || formData.phone.length < 10) errors.phone = 'Valid 10-digit phone number is required'
+        if (!formData.district.trim()) errors.district = 'District or Town is required'
         if (!formData.address.trim()) errors.address = 'Full delivery address is required'
         
         // Strict PIN code validation against the 7 authorized areas
-        const cleanPin = (formData.pincode || '').trim()
+        const cleanPin = (formData.pincode || '').replace(/\D/g, '').trim()
         const matchedArea = checkPincode(cleanPin)
-        if (!cleanPin) {
-            errors.pincode = '6-digit PIN code is required'
+        if (!cleanPin || cleanPin.length !== 6) {
+            errors.pincode = 'Please enter a valid 6-digit PIN code'
         } else if (!matchedArea) {
-            errors.pincode = 'Delivery available only to: Nandurbar (425412), Shahada (425409), Taloda (425413), Nijampur (424305), Akkalkuwa (425415), Shirpur (424405) & Sakri (424304).'
+            errors.pincode = `Online delivery is strictly limited to our 7 authorized hubs: Nandurbar (425412), Shahada (425409), Taloda (425413), Nijampur (424305), Akkalkuwa (425415), Shirpur (424405) & Sakri (424304).`
         }
 
         if (hasRxItem && !rxFile) {
@@ -774,7 +752,6 @@ export default function CartPage() {
                                                     if (res?.user) {
                                                         setFormData((prev) => ({
                                                             ...prev,
-                                                            customerName: res.user.displayName || prev.customerName,
                                                             email: res.user.email || prev.email,
                                                         }))
                                                     }
@@ -897,40 +874,6 @@ export default function CartPage() {
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <label className="block font-semibold text-gray-700">
-                                                Select Delivery Hub / Town <span className="text-red-500">*</span>
-                                            </label>
-                                            <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full">
-                                                Expected in 3–4 Days
-                                            </span>
-                                        </div>
-                                        <select
-                                            value={formData.pincode}
-                                            onChange={(e) => {
-                                                const selectedPin = e.target.value
-                                                const match = checkPincode(selectedPin)
-                                                if (match) {
-                                                    setFormData({
-                                                        ...formData,
-                                                        pincode: match.pincode,
-                                                        district: match.district,
-                                                        areaName: match.name,
-                                                    })
-                                                    setLocationByPincode(match.pincode)
-                                                }
-                                            }}
-                                            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 bg-white font-medium text-xs"
-                                        >
-                                            {serviceableAreas.map((area) => (
-                                                <option key={area.pincode} value={area.pincode}>
-                                                    {area.name} — PIN {area.pincode} ({area.district} Dist.) · 3–4 Days Delivery
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div>
                                             <label className="block font-semibold text-gray-700 mb-1">
@@ -948,35 +891,86 @@ export default function CartPage() {
                                                         ...formData,
                                                         pincode: val,
                                                         district: match ? match.district : formData.district,
-                                                        areaName: match ? match.name : formData.areaName,
+                                                        areaName: match ? match.name : (val.length === 6 ? 'Outside Area' : formData.areaName),
                                                     })
                                                     if (match) setLocationByPincode(match.pincode)
                                                 }}
                                                 className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 font-mono ${
-                                                    formErrors.pincode ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                                    formErrors.pincode || (formData.pincode.length === 6 && !checkPincode(formData.pincode))
+                                                        ? 'border-amber-400 bg-amber-50/50'
+                                                        : 'border-gray-200 focus:border-blue-500'
                                                 }`}
                                             />
                                             {formErrors.pincode ? (
                                                 <p className="text-[11px] text-red-500 mt-1 leading-snug">{formErrors.pincode}</p>
-                                            ) : (
-                                                <p className="text-[10px] text-green-700 font-medium mt-1">
-                                                    ✓ Authorized hub ({formData.areaName || 'Serviceable'}) · Expected in 3–4 Days
+                                            ) : checkPincode(formData.pincode) ? (
+                                                <p className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
+                                                    ✓ Authorized Hub: {checkPincode(formData.pincode).name} ({checkPincode(formData.pincode).district} Dist.) · 3–4 Days Delivery
                                                 </p>
-                                            )}
+                                            ) : formData.pincode.length === 6 ? (
+                                                <p className="text-[11px] text-amber-700 font-medium mt-1">
+                                                    ⚠️ Not in the 7 authorized delivery hubs
+                                                </p>
+                                            ) : null}
                                         </div>
 
                                         <div>
                                             <label className="block font-semibold text-gray-700 mb-1">
-                                                District
+                                                District / City <span className="text-red-500">*</span>
                                             </label>
                                             <input
                                                 type="text"
-                                                readOnly
-                                                value={(formData.district || 'Nandurbar') + ' District, Maharashtra'}
-                                                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-600 outline-none"
+                                                placeholder="e.g. Nandurbar, Dhule"
+                                                value={formData.district}
+                                                onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                                                className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 ${
+                                                    formErrors.district ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
+                                                }`}
                                             />
+                                            {formErrors.district && (
+                                                <p className="text-[11px] text-red-500 mt-1">{formErrors.district}</p>
+                                            )}
                                         </div>
                                     </div>
+
+                                    {/* ── Strict 7-Hub Serviceability Guard Alert ── */}
+                                    {formData.pincode.length === 6 && !checkPincode(formData.pincode) && (
+                                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl space-y-2.5 animate-in fade-in">
+                                            <div className="flex items-start gap-2.5">
+                                                <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-amber-950">
+                                                        Online cart delivery not available for PIN {formData.pincode} ({formData.district || 'this area'}).
+                                                    </h4>
+                                                    <p className="text-[11px] text-amber-900 mt-0.5 leading-relaxed">
+                                                        Direct cart ordering is strictly restricted to our 7 authorized hubs: <strong>Nandurbar (425412), Shahada (425409), Taloda (425413), Nijampur (424305), Akkalkuwa (425415), Shirpur (424405) &amp; Sakri (424304)</strong>.
+                                                    </p>
+                                                    <p className="text-[11px] text-amber-950 font-semibold mt-1.5">
+                                                        Need medicines outside these hubs? Contact the pharmacy owner directly via WhatsApp or Phone Call. The owner will arrange custom parcel dispatch and fulfill your order through the pharmacy callback system:
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-2 border-t border-amber-200 flex flex-wrap gap-2">
+                                                <a
+                                                    href="tel:9503500725"
+                                                    className="inline-flex items-center gap-1.5 text-xs font-bold bg-amber-800 hover:bg-amber-900 text-white px-3.5 py-2 rounded-xl shadow-xs transition-colors"
+                                                >
+                                                    <Phone size={13} />
+                                                    <span>Call Pharmacist (9503500725)</span>
+                                                </a>
+                                                <a
+                                                    href={`https://wa.me/919503500725?text=${encodeURIComponent(`Hello Dhruv Pharma, I need medicines outside the 7 hubs to PIN ${formData.pincode} (${formData.district || 'Location'}). Can you take my order and arrange parcel dispatch?`)}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl shadow-xs transition-colors"
+                                                >
+                                                    <MessageSquare size={13} />
+                                                    <span>Order via WhatsApp</span>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div>
                                         <label className="block font-semibold text-gray-700 mb-1">
@@ -1171,13 +1165,18 @@ export default function CartPage() {
                                     {/* Confirm & Place Order Button */}
                                     <button
                                         type="submit"
-                                        disabled={isSubmitting}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3.5 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 mt-4 text-sm cursor-pointer active:scale-98"
+                                        disabled={isSubmitting || !checkPincode(formData.pincode)}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 mt-4 text-sm cursor-pointer active:scale-98"
                                     >
                                         {isSubmitting ? (
                                             <>
                                                 <Loader2 size={16} className="animate-spin" />
                                                 <span>Placing Order...</span>
+                                            </>
+                                        ) : !checkPincode(formData.pincode) ? (
+                                            <>
+                                                <AlertCircle size={16} />
+                                                <span>Online Delivery Unavailable for PIN {formData.pincode || 'Entered'}</span>
                                             </>
                                         ) : (
                                             <>
