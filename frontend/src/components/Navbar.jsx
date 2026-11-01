@@ -58,24 +58,34 @@ export default function Navbar() {
     const locationRef = useRef(null)
     const searchBoxRef = useRef(null)
 
-    // Preload catalog medicines for instant auto-recommendations
-    useEffect(() => {
+    // Lazy preload catalog only on search focus or idle time (avoids blocking initial page load & Lighthouse metrics)
+    const loadSearchCatalog = async () => {
         if (cachedNavCatalog && cachedNavCatalog.length > 0) return
-        const fetchCatalog = async () => {
-            try {
-                const res = await fetch('http://localhost:8000/api/medicines')
-                if (res.ok) {
-                    const data = await res.json()
-                    if (Array.isArray(data) && data.length > 0) {
-                        cachedNavCatalog = data
-                        setNavMedicines(data)
-                    }
+        try {
+            const res = await fetch('http://localhost:8000/api/medicines?limit=100')
+            if (res.ok) {
+                const data = await res.json()
+                if (Array.isArray(data) && data.length > 0) {
+                    cachedNavCatalog = data
+                    setNavMedicines(data)
                 }
-            } catch (e) {
-                // Silently retain INITIAL_CATALOG if offline
             }
+        } catch (e) {
+            // Silently retain INITIAL_CATALOG if offline
         }
-        fetchCatalog()
+    }
+
+    // Defer non-critical catalog fetch until browser is idle
+    useEffect(() => {
+        if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+            const idleHandle = window.requestIdleCallback(() => {
+                loadSearchCatalog()
+            }, { timeout: 3000 })
+            return () => window.cancelIdleCallback(idleHandle)
+        } else {
+            const timer = setTimeout(loadSearchCatalog, 2000)
+            return () => clearTimeout(timer)
+        }
     }, [])
 
     // Top trending medicines shown when search input is focused with 0 text
@@ -444,7 +454,10 @@ export default function Navbar() {
                                 type="text"
                                 placeholder="Search medicines, salts, health products..."
                                 value={searchQuery}
-                                onFocus={() => setSearchFocused(true)}
+                                onFocus={() => {
+                                    setSearchFocused(true)
+                                    loadSearchCatalog()
+                                }}
                                 onChange={(e) => {
                                     setSearchQuery(e.target.value)
                                     setSearchFocused(true)
@@ -454,6 +467,7 @@ export default function Navbar() {
                             {searchQuery && (
                                 <button
                                     type="button"
+                                    aria-label="Clear search input"
                                     onClick={() => {
                                         setSearchQuery('')
                                         setSearchFocused(false)
@@ -465,6 +479,7 @@ export default function Navbar() {
                             )}
                             <button
                                 type="submit"
+                                aria-label="Execute search"
                                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2.5 font-semibold transition-colors rounded-r-2xl cursor-pointer shrink-0"
                             >
                                 Search
