@@ -30,6 +30,7 @@ import {
     X,
     Info,
     Sparkles,
+    MessageSquare,
 } from 'lucide-react'
 
 export default function CartPage() {

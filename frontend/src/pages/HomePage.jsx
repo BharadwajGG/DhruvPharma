@@ -33,14 +33,14 @@ import {
 
 /* ── Category Data (Exact 8 Categories from Reference Screenshot) ── */
 const CATEGORIES = [
-    { icon: Activity,    label: 'Diabetes Care',          color: 'bg-blue-50 text-blue-600',   border: 'border-blue-100 hover:border-blue-300' },
-    { icon: Heart,       label: 'Heart & BP',             color: 'bg-red-50 text-red-600',     border: 'border-red-100 hover:border-red-300' },
-    { icon: Zap,         label: 'Vitamins & Minerals',    color: 'bg-amber-50 text-amber-600', border: 'border-amber-100 hover:border-amber-300' },
-    { icon: Thermometer, label: 'Pain Relief & Fever',    color: 'bg-orange-50 text-orange-600', border: 'border-orange-100 hover:border-orange-300' },
-    { icon: Leaf,        label: 'Skin & Antifungals',     color: 'bg-emerald-50 text-emerald-600', border: 'border-emerald-100 hover:border-emerald-300' },
-    { icon: Eye,         label: 'Eye & Ear Drops',        color: 'bg-purple-50 text-purple-600', border: 'border-purple-100 hover:border-purple-300' },
-    { icon: Baby,        label: 'Baby & Mother Care',     color: 'bg-pink-50 text-pink-600',   border: 'border-pink-100 hover:border-pink-300' },
-    { icon: Pill,        label: 'General Healthcare',     color: 'bg-teal-50 text-teal-600',   border: 'border-teal-100 hover:border-teal-300' },
+    { icon: Activity,    label: 'Diabetes Care',          storeCategory: 'Diabetes Care',            color: 'bg-blue-50 text-blue-600',   border: 'border-blue-100 hover:border-blue-300' },
+    { icon: Heart,       label: 'Heart & BP',             storeCategory: 'Heart & Blood Pressure',   color: 'bg-red-50 text-red-600',     border: 'border-red-100 hover:border-red-300' },
+    { icon: Zap,         label: 'Vitamins & Minerals',    storeCategory: 'Vitamins & Supplements',   color: 'bg-amber-50 text-amber-600', border: 'border-amber-100 hover:border-amber-300' },
+    { icon: Thermometer, label: 'Pain Relief & Fever',    storeCategory: 'Pain Relief & Fever',      color: 'bg-orange-50 text-orange-600', border: 'border-orange-100 hover:border-orange-300' },
+    { icon: Leaf,        label: 'Skin & Antifungals',     storeCategory: 'Skin Care & Antifungals',  color: 'bg-emerald-50 text-emerald-600', border: 'border-emerald-100 hover:border-emerald-300' },
+    { icon: Eye,         label: 'Eye & Ear Drops',        storeCategory: 'Eye & Ear Drops',          color: 'bg-purple-50 text-purple-600', border: 'border-purple-100 hover:border-purple-300' },
+    { icon: Baby,        label: 'Baby & Mother Care',     storeCategory: 'General Healthcare',       color: 'bg-pink-50 text-pink-600',   border: 'border-pink-100 hover:border-pink-300' },
+    { icon: Pill,        label: 'General Healthcare',     storeCategory: 'General Healthcare',       color: 'bg-teal-50 text-teal-600',   border: 'border-teal-100 hover:border-teal-300' },
 ]
 
 /* ── Fallback Best-Sellers (Mapped to Authentic Pack Shots) ── */
@@ -499,7 +499,7 @@ export default function HomePage() {
                     {CATEGORIES.map((cat) => (
                         <Link
                             key={cat.label}
-                            to={`/medicines?category=${encodeURIComponent(cat.label)}`}
+                            to={`/medicines?category=${encodeURIComponent(cat.storeCategory || cat.label)}`}
                             className={`card-modern min-w-[135px] sm:min-w-[148px] shrink-0 flex flex-col items-center justify-center p-4 text-center group cursor-pointer snap-start ${cat.border}`}
                         >
                             <div className={`${cat.color.replace('text-', 'bg-').replace('600', '100')} p-3 rounded-2xl mb-2.5 group-hover:scale-110 transition-transform`}>

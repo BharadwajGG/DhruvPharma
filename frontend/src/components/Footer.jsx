@@ -11,6 +11,7 @@ import {
     Shield,
     Truck,
     HeartHandshake,
+    RotateCcw,
 } from 'lucide-react'
 
 const MEDICINE_CATEGORIES = [
@@ -38,7 +39,7 @@ export default function Footer() {
 
             {/* ── Trust Badges Strip ── */}
             <div className="bg-blue-700 py-6">
-                <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-white text-center">
+                <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 lg:grid-cols-4 gap-6 text-white text-center">
                     <div className="flex flex-col items-center gap-2">
                         <Shield size={28} />
                         <p className="font-semibold text-sm">Licensed Pharmacy</p>
@@ -46,8 +47,13 @@ export default function Footer() {
                     </div>
                     <div className="flex flex-col items-center gap-2">
                         <Truck size={28} />
-                        <p className="font-semibold text-sm">Local Delivery</p>
-                        <p className="text-blue-200 text-xs">Fast delivery in 3-4 districts</p>
+                        <p className="font-semibold text-sm">Local Hub Delivery</p>
+                        <p className="text-blue-200 text-xs">Doorstep delivery across 7 hubs</p>
+                    </div>
+                    <div className="flex flex-col items-center gap-2">
+                        <RotateCcw size={28} />
+                        <p className="font-semibold text-sm">15-Day Easy Returns</p>
+                        <p className="text-blue-200 text-xs">100% refund on unopened packs</p>
                     </div>
                     <div className="flex flex-col items-center gap-2">
                         <HeartHandshake size={28} />

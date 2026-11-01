@@ -9,6 +9,7 @@ import {
     Truck,
     PhoneCall,
     Sparkles,
+    RotateCcw,
 } from 'lucide-react'
 
 export default function MarketingBannerCarousel() {
@@ -123,6 +124,26 @@ export default function MarketingBannerCarousel() {
             packTag: 'Instant Quotation',
             icon: PhoneCall,
             isPhoneCall: true,
+        },
+
+        // ── Card 5: 15-Day Peace of Mind Return Policy ──
+        {
+            id: 'return-policy',
+            badge: '15-Day Easy Returns',
+            badgeBg: 'bg-teal-700 text-white',
+            brandTag: '100% REFUND ASSURED',
+            headline: '15 DAYS PEACE OF MIND RETURN POLICY',
+            subheadline: 'Doctor changed prescription or ordered wrong medicine? Return sealed unopened packs within 15 days for a 100% refund.',
+            bgClass: 'bg-gradient-to-br from-teal-50 via-cyan-100/70 to-emerald-100 border-teal-200/70',
+            textColor: 'text-teal-950',
+            subColor: 'text-teal-900/80',
+            btnText: 'Shop with confidence',
+            link: '/medicines',
+            packImage: '/images/medicines/shelcal-500.svg',
+            packSecondary: '/images/medicines/pan-40.svg',
+            packName: 'Zero Risk Order',
+            packTag: '15-Day Returns',
+            icon: RotateCcw,
         },
     ]
 

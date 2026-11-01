@@ -295,11 +295,28 @@ export default function MedicineStorePage() {
         return [...exactMatches, ...nameMatches, ...saltMatches].slice(0, 6)
     }, [searchQuery, medicines])
 
-    // Keep search query in sync with URL search parameter changes
+    // Keep search query and category in sync with URL search parameter changes
     useEffect(() => {
         const urlQ = searchParams.get('q') || ''
+        const urlCat = searchParams.get('category')
         setSearchQuery(urlQ)
         setDebouncedSearch(urlQ)
+
+        if (urlCat) {
+            // Match against STORE_CATEGORIES or case-insensitive fuzzy match
+            const targetLower = urlCat.trim().toLowerCase()
+            const match = STORE_CATEGORIES.find((c) => {
+                const cLower = c.toLowerCase()
+                if (cLower === targetLower) return true
+                if (targetLower.includes('vitamin') && cLower.includes('vitamin')) return true
+                if ((targetLower.includes('heart') || targetLower.includes('bp')) && (cLower.includes('heart') || cLower.includes('blood pressure'))) return true
+                if (targetLower.includes('skin') && cLower.includes('skin')) return true
+                if (targetLower.includes('pain') && cLower.includes('pain')) return true
+                if (targetLower.includes('diabet') && cLower.includes('diabet')) return true
+                return false
+            })
+            setActiveCategory(match || urlCat)
+        }
     }, [searchParams])
 
     // Debounce search keystrokes to ensure 60 FPS input smoothness
@@ -378,8 +395,21 @@ export default function MedicineStorePage() {
             )
         }
 
-        if (activeCategory !== 'All') {
-            result = result.filter((m) => m.category === activeCategory)
+        if (activeCategory && activeCategory !== 'All') {
+            const catLower = activeCategory.trim().toLowerCase()
+            result = result.filter((m) => {
+                const mCat = (m.category || '').toLowerCase()
+                if (mCat === catLower) return true
+                if (catLower.includes('vitamin') && mCat.includes('vitamin')) return true
+                if ((catLower.includes('heart') || catLower.includes('bp')) && (mCat.includes('heart') || mCat.includes('bp') || mCat.includes('blood pressure'))) return true
+                if (catLower.includes('skin') && mCat.includes('skin')) return true
+                if (catLower.includes('pain') && mCat.includes('pain')) return true
+                if (catLower.includes('diabet') && mCat.includes('diabet')) return true
+                if (catLower.includes('digest') && mCat.includes('digest')) return true
+                if (catLower.includes('infection') && mCat.includes('infect')) return true
+                if (catLower.includes('eye') && mCat.includes('eye')) return true
+                return false
+            })
         }
 
         if (rxFilter === 'rx') {
