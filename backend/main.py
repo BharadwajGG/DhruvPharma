@@ -13,7 +13,7 @@ from typing import List, Optional, Dict, Any
 # Ensure backend directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException, Query, Response
+from fastapi import FastAPI, Depends, File, Form, UploadFile, HTTPException, Query, Response, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -31,6 +31,7 @@ from notifications import (
     generate_cancellation_whatsapp_message,
     send_order_email,
 )
+from services.email_service import send_login_alert_email, send_order_cancelled_email, send_admin_cancellation_audit_email
 
 # ==============================================================================
 # TIER 2 BRAND IMAGE SEED REGISTRY (Authentic Studio Pack Shots)
@@ -626,10 +627,16 @@ class OrderCancelRequest(BaseModel):
     reason: Optional[str] = "Customer requested cancellation"
 
 
+class AdminOrderCancelPayload(BaseModel):
+    reason: str
+    adminNotes: Optional[str] = ""
+
+
 @app.post("/api/orders/{order_id}/cancel")
 async def cancel_customer_order(
     order_id: str,
     payload: Optional[OrderCancelRequest] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
     """Allows customers to cancel pending/confirmed orders, restores medicine stock, triggers notifications, and broadcasts update to Admin in real-time."""
@@ -674,7 +681,9 @@ async def cancel_customer_order(
             print(f"Stock restore warning on order cancellation: {e}")
 
     order.status = "cancelled"
+    order.cancelled_by = "customer"
     cancel_note = (payload.reason if payload and payload.reason else "Cancelled by customer").strip()
+    order.cancellation_reason = cancel_note
     if order.notes:
         order.notes += f" | {cancel_note}"
     else:
@@ -689,6 +698,14 @@ async def cancel_customer_order(
     cancel_email = generate_cancellation_email_html(order_dict, cancelled_by="customer", reason=cancel_note)
     cancel_wa = generate_cancellation_whatsapp_message(order_dict, cancelled_by="customer", reason=cancel_note)
     send_order_email(order_dict, subject=f"Order #{order.order_id} Cancelled - Dhruv Pharma", html_content=cancel_email)
+
+    # Operational audit email to admin
+    background_tasks.add_task(
+        send_admin_cancellation_audit_email,
+        order_data=order_dict,
+        reason=cancel_note,
+        cancelled_by="customer"
+    )
 
     # Broadcast real-time SSE cancellation event to Admin Portal
     await broadcast_order_event("order_cancelled", {
@@ -706,6 +723,111 @@ async def cancel_customer_order(
     return {
         "success": True,
         "message": f"Order #{order.order_id} has been cancelled successfully. Confirmation sent via WhatsApp & Email.",
+        "order": order_dict,
+        "whatsappText": cancel_wa,
+    }
+
+
+@app.post("/api/admin/orders/{order_id}/cancel")
+async def admin_cancel_order(
+    order_id: str,
+    payload: AdminOrderCancelPayload,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Emergency Order Cancellation by Pharmacist / Admin.
+    Restores inventory, marks order as cancelled by admin, voids revenue,
+    and sends transparent notification emails to BOTH the customer and admin.
+    """
+    order = (
+        db.query(OrderModel)
+        .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+
+    if (order.status or "").lower() == "cancelled":
+        return {
+            "success": True,
+            "message": f"Order {order.order_id} is already marked as cancelled.",
+            "order": order.to_dict(),
+        }
+
+    # 1. Restore medicine stock
+    if order.stock_deducted:
+        try:
+            items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+            for it in items:
+                m_id = it.get("id") or it.get("medicineId")
+                qty = int(it.get("qty", it.get("quantity", 1)) or 1)
+                med = None
+                if m_id:
+                    med = db.query(MedicineModel).filter(MedicineModel.id == m_id).first()
+                if not med and it.get("name"):
+                    med = db.query(MedicineModel).filter(MedicineModel.name.ilike(it.get("name").strip())).first()
+                if med and med.stock_quantity is not None:
+                    med.stock_quantity += qty
+            order.stock_deducted = False
+        except Exception as e:
+            print(f"Stock restore warning on admin order cancellation: {e}")
+
+    # 2. Update order record
+    reason_clean = (payload.reason or "Cancelled by store administration for urgent operational reason").strip()
+    order.status = "cancelled"
+    order.cancelled_by = "admin"
+    order.cancellation_reason = reason_clean
+    admin_note_str = f"Admin Cancelled: {reason_clean}"
+    if payload.adminNotes:
+        admin_note_str += f" ({payload.adminNotes.strip()})"
+
+    if order.notes:
+        order.notes += f" | {admin_note_str}"
+    else:
+        order.notes = admin_note_str
+
+    db.commit()
+    db.refresh(order)
+
+    order_dict = order.to_dict()
+
+    # 3. Transparent Email to Customer
+    customer_email = order.customer_email or ""
+    if customer_email and "@" in customer_email:
+        background_tasks.add_task(
+            send_order_cancelled_email,
+            to_email=customer_email,
+            order_data=order_dict,
+            reason=reason_clean,
+            cancelled_by="admin"
+        )
+
+    # 4. Operational Audit Email to Store Owner / Admin
+    background_tasks.add_task(
+        send_admin_cancellation_audit_email,
+        order_data=order_dict,
+        reason=reason_clean,
+        cancelled_by="admin"
+    )
+
+    # 5. Broadcast real-time SSE event to all connected dashboards & tracking views
+    cancel_wa = generate_cancellation_whatsapp_message(order_dict, cancelled_by="store", reason=reason_clean)
+    await broadcast_order_event("order_cancelled", {
+        "order": order_dict,
+        "orderId": order.order_id,
+        "cancelledBy": "admin",
+        "customerName": order.customer_name,
+        "phone": order.customer_phone,
+        "amount": order.total_amount,
+        "reason": reason_clean,
+        "whatsappText": cancel_wa,
+    })
+    await broadcast_order_event("status_update", order_dict)
+
+    return {
+        "success": True,
+        "message": f"Order #{order.order_id} has been cancelled by Admin. Transparent notification emails have been dispatched to both customer and store owner.",
         "order": order_dict,
         "whatsappText": cancel_wa,
     }
@@ -2074,6 +2196,42 @@ def add_medicine_review(item_id: int, payload: ReviewCreateRequest, db: Session 
     db.commit()
     db.refresh(new_rev)
     return {"success": True, "review": new_rev.to_dict()}
+
+
+# ==============================================================================
+# AUTHENTICATION SECURITY & LOGIN ALERTS (/api/auth/login-alert)
+# ==============================================================================
+
+class LoginAlertPayload(BaseModel):
+    email: str
+    displayName: Optional[str] = ""
+
+@app.post("/api/auth/login-alert")
+async def trigger_login_alert(
+    payload: LoginAlertPayload,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Sends an automated account login security alert email via Resend.
+    Dispatched non-blocking via BackgroundTasks for 0ms frontend latency.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "127.0.0.1"
+
+    user_agent = request.headers.get("user-agent", "Desktop / Web Browser")
+
+    background_tasks.add_task(
+        send_login_alert_email,
+        to_email=payload.email,
+        user_name=payload.displayName or "",
+        client_ip=client_ip,
+        user_agent=user_agent
+    )
+    return {"status": "queued", "email": payload.email}
 
 
 # ==============================================================================

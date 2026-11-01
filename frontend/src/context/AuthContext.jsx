@@ -69,10 +69,31 @@ export function AuthProvider({ children }) {
         return () => unsubscribe()
     }, [])
 
+    /* ── Send Security Sign-In Alert Email ── */
+    const notifyLoginAlert = (user) => {
+        if (!user || !user.email) return
+        try {
+            fetch('http://localhost:8000/api/auth/login-alert', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: user.email,
+                    displayName: user.displayName || user.email.split('@')[0],
+                }),
+            }).catch((err) => {
+                // Non-blocking fire-and-forget; silent log
+                console.debug('Login alert background fetch skipped:', err)
+            })
+        } catch (err) {
+            // Silently ignore if offline
+        }
+    }
+
     /* ── Sign In with Email & Password ── */
     const login = async (email, password) => {
         const credential = await signInWithEmailAndPassword(auth, email, password)
         const { isAdmin: userIsAdmin, claims } = await verifyUserClaims(credential.user)
+        notifyLoginAlert(credential.user)
         return { user: credential.user, isAdmin: userIsAdmin, claims }
     }
 
@@ -82,6 +103,7 @@ export function AuthProvider({ children }) {
         provider.setCustomParameters({ prompt: 'select_account' })
         const credential = await signInWithPopup(auth, provider)
         const { isAdmin: userIsAdmin, claims } = await verifyUserClaims(credential.user)
+        notifyLoginAlert(credential.user)
         return { user: credential.user, isAdmin: userIsAdmin, claims }
     }
 
@@ -94,6 +116,7 @@ export function AuthProvider({ children }) {
         }
         // Newly registered accounts strictly have no admin claims
         const { isAdmin: userIsAdmin, claims } = await verifyUserClaims(credential.user)
+        notifyLoginAlert(credential.user)
         return { user: credential.user, isAdmin: userIsAdmin, claims }
     }
 

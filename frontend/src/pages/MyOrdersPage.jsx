@@ -453,8 +453,8 @@ export default function MyOrdersPage() {
                                         </span>
                                     </div>
 
-                                    {/* 4-Step Animated Fulfillment Tracker */}
-                                    {order.status !== 'cancelled' && (
+                                    {/* 4-Step Animated Fulfillment Tracker or Cancelled Banner */}
+                                    {order.status !== 'cancelled' ? (
                                         <div className="px-5 py-4 bg-white border-b border-gray-100">
                                             <div className="relative flex items-center justify-between max-w-lg mx-auto">
                                                 {/* Background line */}
@@ -498,6 +498,34 @@ export default function MyOrdersPage() {
                                                         </div>
                                                     )
                                                 })}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="px-5 py-4 bg-rose-50/70 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                                            <div className="flex items-start gap-2.5">
+                                                <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg shrink-0 mt-0.5 border border-rose-200">
+                                                    <AlertCircle size={17} />
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-rose-950 text-xs sm:text-sm">
+                                                        {order.cancelledBy === 'admin' ? 'Order Cancelled by Pharmacy Administration' : 'Order Cancelled by You'}
+                                                    </p>
+                                                    <p className="text-rose-800 text-[11px] mt-0.5">
+                                                        <strong>Reason:</strong> {order.cancellationReason || 'Order marked cancelled upon request'}
+                                                    </p>
+                                                    <p className="text-slate-500 text-[10px] mt-0.5">
+                                                        ✓ Bill voided (₹0.00 due) · Medicine stock returned to warehouse
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                                                <a
+                                                    href="tel:+919503500725"
+                                                    className="inline-flex items-center gap-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 px-3 py-1.5 rounded-xl font-bold text-xs shadow-2xs transition-colors"
+                                                >
+                                                    <Phone size={12} />
+                                                    <span>Call Pharmacist</span>
+                                                </a>
                                             </div>
                                         </div>
                                     )}
@@ -605,9 +633,20 @@ export default function MyOrdersPage() {
                                                     <span>Cancel Order</span>
                                                 </button>
                                             ) : order.status === 'cancelled' ? (
-                                                <span className="text-[11px] text-red-500 font-semibold bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
-                                                    Cancelled by Customer · Items Restocked
-                                                </span>
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                                        order.cancelledBy === 'admin'
+                                                            ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                                            : 'bg-slate-100 text-slate-700 border-slate-200'
+                                                    }`}>
+                                                        {order.cancelledBy === 'admin' ? '❌ Cancelled by Pharmacy Admin' : 'Cancelled by You'}
+                                                    </span>
+                                                    {order.cancellationReason && (
+                                                        <span className="text-[10px] text-rose-600 max-w-[220px] text-right truncate font-medium" title={order.cancellationReason}>
+                                                            Reason: {order.cancellationReason}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             ) : null}
                                         </div>
                                     </div>

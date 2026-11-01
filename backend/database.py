@@ -127,6 +127,8 @@ class OrderModel(Base):
     expected_delivery = Column(String(150), nullable=True, default="Expected in 3–4 Days")
     delivery_agent = Column(String(100), nullable=True, default="Sanjay Kumar (Dhruv Express)")
     stock_deducted = Column(Boolean, default=False)
+    cancelled_by = Column(String(50), nullable=True, default="")  # "admin" or "customer"
+    cancellation_reason = Column(Text, nullable=True, default="")
     notes = Column(Text, nullable=True, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -166,6 +168,8 @@ class OrderModel(Base):
             "deliveryAgent": self.delivery_agent or "—",
             "stockDeducted": bool(self.stock_deducted),
             "stock_deducted": bool(self.stock_deducted),
+            "cancelledBy": getattr(self, "cancelled_by", "") or "",
+            "cancellationReason": getattr(self, "cancellation_reason", "") or "",
             "notes": self.notes or "",
             "date": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
             "createdAt": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",

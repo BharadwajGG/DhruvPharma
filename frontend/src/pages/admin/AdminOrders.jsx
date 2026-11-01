@@ -135,6 +135,13 @@ export default function AdminOrders() {
     const [selectedMedId, setSelectedMedId] = useState('')
     const [selectedMedQty, setSelectedMedQty] = useState(1)
 
+    // ── Emergency Admin Order Cancellation State ──
+    const [adminCancelModalOpen, setAdminCancelModalOpen] = useState(false)
+    const [orderToCancel, setOrderToCancel] = useState(null)
+    const [cancelReasonPreset, setCancelReasonPreset] = useState('Out of batch stock / expired batch')
+    const [cancelCustomNotes, setCancelCustomNotes] = useState('')
+    const [isSubmittingAdminCancel, setIsSubmittingAdminCancel] = useState(false)
+
     // Fetch initial orders list
     const fetchOrders = async () => {
         setIsLoading(true)
@@ -321,6 +328,57 @@ export default function AdminOrders() {
             console.error('Status transition error:', err)
         } finally {
             setIsUpdatingStatus(false)
+        }
+    }
+
+    // ── Emergency Admin Cancellation Handler ──
+    const handleExecuteAdminCancel = async () => {
+        if (!orderToCancel) return
+        setIsSubmittingAdminCancel(true)
+        const orderId = orderToCancel.orderId || orderToCancel.id
+        const effectiveReason = cancelReasonPreset === 'Custom Reason'
+            ? (cancelCustomNotes.trim() || 'Cancelled by store administration for urgent operational reason')
+            : (cancelCustomNotes.trim() ? `${cancelReasonPreset}: ${cancelCustomNotes.trim()}` : cancelReasonPreset)
+
+        try {
+            const res = await fetch(`http://localhost:8000/api/admin/orders/${orderId}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reason: effectiveReason,
+                    adminNotes: cancelCustomNotes.trim(),
+                }),
+            })
+            const data = await res.json()
+            if (res.ok) {
+                setOrders((prev) =>
+                    prev.map((o) =>
+                        o.id === orderId || o.orderId === orderId
+                            ? { ...o, status: 'cancelled', cancelledBy: 'admin', cancellationReason: effectiveReason }
+                            : o
+                    )
+                )
+                if (selected && (selected.id === orderId || selected.orderId === orderId)) {
+                    setSelected((prev) => ({
+                        ...prev,
+                        status: 'cancelled',
+                        cancelledBy: 'admin',
+                        cancellationReason: effectiveReason,
+                    }))
+                }
+                setStockAlertMessage(`⚠️ Order #${orderId} was CANCELLED by Admin. Customer & Store Owner notified via email. Stock restored.`)
+                setTimeout(() => setStockAlertMessage(''), 8000)
+                setAdminCancelModalOpen(false)
+                setOrderToCancel(null)
+                setCancelCustomNotes('')
+            } else {
+                alert(data.detail || 'Failed to cancel order')
+            }
+        } catch (err) {
+            console.error('Admin cancel error:', err)
+            alert('Failed to connect to backend server')
+        } finally {
+            setIsSubmittingAdminCancel(false)
         }
     }
 
@@ -959,6 +1017,18 @@ export default function AdminOrders() {
                                                     >
                                                         <Printer size={12} /> Print Bill
                                                     </button>
+                                                    {o.status !== 'cancelled' && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setOrderToCancel(o)
+                                                                setAdminCancelModalOpen(true)
+                                                            }}
+                                                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                                            title="Emergency Cancel Order by Admin"
+                                                        >
+                                                            <X size={13} className="text-rose-500" />
+                                                        </button>
+                                                    )}
                                                     <button
                                                         onClick={() => handleDeleteOrder(o.id || o.orderId)}
                                                         className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
@@ -1037,7 +1107,7 @@ export default function AdminOrders() {
                                     </div>
 
                                     {/* Action Buttons */}
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         {selected.status === 'pending' && (
                                             <button
                                                 disabled={isUpdatingStatus}
@@ -1065,8 +1135,39 @@ export default function AdminOrders() {
                                                 <CheckCircle size={12} /> Mark Delivered
                                             </button>
                                         )}
+                                        {selected.status !== 'cancelled' && (
+                                            <button
+                                                disabled={isUpdatingStatus}
+                                                onClick={() => {
+                                                    setOrderToCancel(selected)
+                                                    setAdminCancelModalOpen(true)
+                                                }}
+                                                className="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-2xs cursor-pointer ml-auto"
+                                                title="Emergency Order Cancellation by Admin"
+                                            >
+                                                <X size={12} /> Cancel Order
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
+
+                                {/* Cancelled Order Reassurance Banner */}
+                                {selected.status === 'cancelled' && (
+                                    <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-3.5 space-y-1 text-xs">
+                                        <div className="flex items-center gap-1.5 font-bold text-rose-900">
+                                            <AlertCircle size={15} className="text-rose-600 shrink-0" />
+                                            <span>
+                                                Order Cancelled ({selected.cancelledBy === 'admin' ? 'by Store Pharmacist / Admin' : 'by Customer'})
+                                            </span>
+                                        </div>
+                                        <p className="text-rose-800 text-[11px] leading-relaxed">
+                                            <strong>Reason:</strong> {selected.cancellationReason || 'Order marked cancelled upon request'}
+                                        </p>
+                                        <p className="text-slate-500 text-[10px] pt-0.5">
+                                            ✓ Medicine items restocked to catalog · Revenue deducted · Notification emails dispatched
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Expected Delivery Time Setting */}
                                 <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 space-y-2">
@@ -1632,6 +1733,136 @@ export default function AdminOrders() {
                                     )}
                                 </button>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Emergency Admin Order Cancellation Modal ── */}
+                {adminCancelModalOpen && orderToCancel && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 border border-slate-200 shadow-2xl relative">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAdminCancelModalOpen(false)
+                                    setOrderToCancel(null)
+                                }}
+                                className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center shrink-0 border border-rose-100">
+                                    <AlertCircle size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-slate-900">
+                                        Emergency Order Cancellation
+                                    </h3>
+                                    <p className="text-xs text-slate-500">
+                                        Admin Action for Order #{orderToCancel.orderId || orderToCancel.id}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-1.5 text-xs">
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Customer:</span>
+                                    <span className="font-bold text-slate-800">{orderToCancel.customerName || orderToCancel.patient}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Phone:</span>
+                                    <span className="font-bold text-slate-800">{orderToCancel.phone || orderToCancel.customerPhone}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Email:</span>
+                                    <span className="font-semibold text-slate-700">{orderToCancel.email || 'No email provided'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Bill to Void:</span>
+                                    <span className="font-black text-rose-700">₹{orderToCancel.amount || orderToCancel.totalAmount}</span>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                                        Select Cancellation Reason:
+                                    </label>
+                                    <select
+                                        value={cancelReasonPreset}
+                                        onChange={(e) => setCancelReasonPreset(e.target.value)}
+                                        className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+                                    >
+                                        <option value="Out of batch stock / expired batch">Out of batch stock / expired batch</option>
+                                        <option value="Unserviceable delivery address">Unserviceable delivery address</option>
+                                        <option value="Customer requested cancellation via emergency call">Customer requested cancellation via emergency call</option>
+                                        <option value="Prescription paper rejected by pharmacist">Prescription paper rejected by pharmacist</option>
+                                        <option value="Pricing discrepancy or distributor recall">Pricing discrepancy or distributor recall</option>
+                                        <option value="Custom Reason">Custom Reason / Pharmacist Note</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                                        Explanation Note (Visible to Customer in Email &amp; Orders screen):
+                                    </label>
+                                    <textarea
+                                        rows={2}
+                                        value={cancelCustomNotes}
+                                        onChange={(e) => setCancelCustomNotes(e.target.value)}
+                                        placeholder="e.g. Current batch of Augmentin is out of stock. Alternative Azithromycin suggested on call."
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 resize-none font-medium"
+                                    />
+                                </div>
+
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
+                                    <p className="font-bold flex items-center gap-1 text-amber-950">
+                                        <span>🛡️ Transparent Multi-Channel Guarantee:</span>
+                                    </p>
+                                    <p>
+                                        • Confirmation email dispatched to <strong>customer</strong> explaining the reason.
+                                    </p>
+                                    <p>
+                                        • Audit record emailed to <strong>store owner</strong> for accounting.
+                                    </p>
+                                    <p>
+                                        • Medicine items automatically restocked to store inventory.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setAdminCancelModalOpen(false)
+                                        setOrderToCancel(null)
+                                    }}
+                                    className="flex-1 py-2.5 border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                                >
+                                    Keep Order
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={isSubmittingAdminCancel}
+                                    onClick={handleExecuteAdminCancel}
+                                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-bold rounded-xl text-xs transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                >
+                                    {isSubmittingAdminCancel ? (
+                                        <>
+                                            <Loader2 size={13} className="animate-spin" />
+                                            <span>Cancelling...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <X size={13} />
+                                            <span>Confirm &amp; Cancel Order</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}

@@ -362,9 +362,28 @@ def generate_cancellation_whatsapp_message(order: Dict[str, Any], cancelled_by: 
 
 
 def send_order_email(order: Dict[str, Any], subject: str = "Dhruv Pharma Order Update", html_content: str = None) -> bool:
-    """Sends email or logs notification dispatch."""
-    recipient = order.get("customerEmail") or order.get("email")
+    """
+    Sends real transactional email via Resend if customer email is provided.
+    Gracefully logs and falls back if network is unreachable.
+    """
+    recipient = order.get("customerEmail") or order.get("email") or order.get("customer_email")
     order_id = order.get("orderId", order.get("id"))
-    logger.info(f"[EMAIL DISPATCH] ({subject}) for #{order_id} to recipient: {recipient or 'no-email-provided'}")
-    return True
+    if not recipient or "@" not in str(recipient):
+        logger.info(f"[EMAIL DISPATCH] Skipped: no recipient email for #{order_id}")
+        return False
+
+    try:
+        from services.email_service import EMAIL_FROM, _send_with_sandbox_fallback
+        content = html_content or generate_order_email_html(order)
+        res = _send_with_sandbox_fallback({
+            "from": EMAIL_FROM,
+            "to": [recipient.strip()],
+            "subject": subject,
+            "html": content,
+        }, recipient.strip())
+        logger.info(f"[Resend] Transactional email sent for #{order_id} to {recipient}: {res}")
+        return True
+    except Exception as e:
+        logger.warning(f"[Resend] Transactional email dispatch notice for #{order_id}: {e}")
+        return False
 

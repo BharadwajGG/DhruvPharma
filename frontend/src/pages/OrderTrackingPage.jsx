@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, Package, Truck, CheckCircle, Clock, MapPin, Phone } from 'lucide-react'
+import { Search, Package, Truck, CheckCircle, Clock, MapPin, Phone, X, AlertCircle } from 'lucide-react'
 
 const STATUS_STEPS = [
     { key: 'placed',      label: 'Order Placed',     icon: Package },
@@ -31,10 +31,22 @@ export default function OrderTrackingPage() {
     const [order, setOrder]     = useState(null)
     const [notFound, setNotFound] = useState(false)
 
-    const handleSearch = (e) => {
+    const handleSearch = async (e) => {
         e.preventDefault()
         setNotFound(false)
-        if (orderId.toUpperCase() === 'DP-2024-00142') {
+        const cleanId = orderId.trim()
+        if (!cleanId) return
+
+        try {
+            const res = await fetch(`http://localhost:8000/api/orders/${encodeURIComponent(cleanId)}`)
+            if (res.ok) {
+                const data = await res.json()
+                setOrder(data)
+                return
+            }
+        } catch (err) {}
+
+        if (cleanId.toUpperCase() === 'DP-2024-00142') {
             setOrder(MOCK_ORDER)
         } else {
             setOrder(null)
@@ -109,38 +121,64 @@ export default function OrderTrackingPage() {
                                 </div>
                             </div>
 
-                            {/* Progress Steps */}
-                            <div className="relative">
-                                {/* Connecting line */}
-                                <div className="absolute top-5 left-5 right-5 h-0.5 bg-gray-200" />
-                                <div
-                                    className="absolute top-5 left-5 h-0.5 bg-blue-600 transition-all"
-                                    style={{ width: `${(currentStep / (STATUS_STEPS.length - 1)) * 100}%` }}
-                                />
-
-                                <div className="relative flex justify-between">
-                                    {STATUS_STEPS.map((step, idx) => {
-                                        const done = idx <= currentStep
-                                        const active = idx === currentStep
-                                        return (
-                                            <div key={step.key} className="flex flex-col items-center gap-2">
-                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 transition-all
-                                                    ${done
-                                                        ? 'bg-blue-600 border-blue-600 text-white'
-                                                        : 'bg-white border-gray-200 text-gray-400'
-                                                    }
-                                                    ${active ? 'ring-4 ring-blue-100' : ''}`}
-                                                >
-                                                    <step.icon size={16} />
-                                                </div>
-                                                <p className={`text-[11px] font-medium text-center ${done ? 'text-blue-600' : 'text-gray-400'}`}>
-                                                    {step.label}
-                                                </p>
-                                            </div>
-                                        )
-                                    })}
+                            {/* Progress Steps or Cancelled Card */}
+                            {order.status === 'cancelled' ? (
+                                <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 text-center space-y-2">
+                                    <div className="w-10 h-10 bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center mx-auto mb-1">
+                                        <X size={20} />
+                                    </div>
+                                    <h3 className="font-bold text-rose-900 text-sm sm:text-base">
+                                        {order.cancelledBy === 'admin' ? 'Order Cancelled by Pharmacy Administration' : 'Order Cancelled by Customer'}
+                                    </h3>
+                                    <p className="text-xs text-rose-800">
+                                        <strong>Reason:</strong> {order.cancellationReason || 'Order marked cancelled upon request'}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                        Bill voided · Zero payment due · Medicines restored to inventory
+                                    </p>
+                                    <div className="pt-2">
+                                        <a
+                                            href="tel:+919503500725"
+                                            className="inline-flex items-center gap-1.5 bg-white text-rose-700 border border-rose-200 px-3.5 py-1.5 rounded-xl text-xs font-bold hover:bg-rose-50 transition-colors shadow-2xs"
+                                        >
+                                            <Phone size={12} />
+                                            <span>Call Pharmacist (+91 95035 00725)</span>
+                                        </a>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="relative">
+                                    {/* Connecting line */}
+                                    <div className="absolute top-5 left-5 right-5 h-0.5 bg-gray-200" />
+                                    <div
+                                        className="absolute top-5 left-5 h-0.5 bg-blue-600 transition-all"
+                                        style={{ width: `${(currentStep / (STATUS_STEPS.length - 1)) * 100}%` }}
+                                    />
+
+                                    <div className="relative flex justify-between">
+                                        {STATUS_STEPS.map((step, idx) => {
+                                            const done = idx <= currentStep
+                                            const active = idx === currentStep
+                                            return (
+                                                <div key={step.key} className="flex flex-col items-center gap-2">
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 transition-all
+                                                        ${done
+                                                            ? 'bg-blue-600 border-blue-600 text-white'
+                                                            : 'bg-white border-gray-200 text-gray-400'
+                                                        }
+                                                        ${active ? 'ring-4 ring-blue-100' : ''}`}
+                                                    >
+                                                        <step.icon size={16} />
+                                                    </div>
+                                                    <p className={`text-[11px] font-medium text-center ${done ? 'text-blue-600' : 'text-gray-400'}`}>
+                                                        {step.label}
+                                                    </p>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Placed at */}
                             <p className="text-center text-xs text-gray-400 mt-4 flex items-center justify-center gap-1">
