@@ -170,19 +170,32 @@ app = FastAPI(
     version="2.1.0",
 )
 
-# Enable CORS for React frontend
+# Enable CORS for React frontend & Production deployments
+CORS_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGINS", "")
+allowed_origins_list = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "*"
+]
+if CORS_ORIGINS_ENV:
+    allowed_origins_list.extend([o.strip() for o in CORS_ORIGINS_ENV.split(",") if o.strip()])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "*"
-    ],
+    allow_origins=allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 # Mount uploads static folder so frontend can view/download uploaded photos & PDFs
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
@@ -205,12 +218,23 @@ async def broadcast_order_event(event_type: str, data: dict):
             sse_clients.remove(q)
 
 
+@app.get("/health")
 @app.get("/api/health")
-def health_check():
+def health_check(db: Session = Depends(get_db)):
+    try:
+        med_count = db.query(MedicineModel).count()
+        db_status = "connected"
+    except Exception as e:
+        med_count = 0
+        db_status = f"unhealthy: {str(e)}"
+
     return {
-        "status": "healthy",
+        "status": "healthy" if db_status == "connected" else "degraded",
         "service": "Dhruv Pharma Backend API",
         "version": "2.1.0",
+        "database": db_status,
+        "catalog_size": med_count,
+        "hubs_count": 7,
         "timestamp": datetime.utcnow().isoformat(),
     }
 

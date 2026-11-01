@@ -1,0 +1,22 @@
+# Dhruv Pharma robots.txt
+# https://dhruvpharma.com/robots.txt
+
+User-agent: *
+Allow: /
+Allow: /medicines
+Allow: /medicines/*
+Allow: /prescription
+Allow: /contact
+Allow: /track-order
+
+# Protect private admin and queue routes from crawling
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /prescription-queue
+Disallow: /prescription-queue/*
+Disallow: /cart
+Disallow: /my-orders
+Disallow: /profile
+
+# Sitemap definition
+Sitemap: https://dhruvpharma.com/sitemap.xml

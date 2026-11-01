@@ -290,7 +290,7 @@ export default function HomePage() {
                             </div>
 
                             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black leading-tight tracking-tight">
-                                Genuine Medicines,<br />
+                                Dhruv Pharma — Genuine Medicines,<br />
                                 Delivered to Your <span className="text-yellow-300 underline decoration-yellow-400/60 decoration-wavy decoration-2">Doorstep</span>.
                             </h1>
 

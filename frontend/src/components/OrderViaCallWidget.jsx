@@ -97,8 +97,8 @@ export default function OrderViaCallWidget() {
 
     return (
         <>
-            {/* ── Persistent Floating Button on Bottom-Right ── */}
-            <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
+            {/* ── Persistent Floating Button on Bottom-Right (raised on mobile to avoid bottom nav) ── */}
+            <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-40 flex flex-col items-end">
                 {/* Expandable Quick Action Card */}
                 {isOpen && (
                     <div className="mb-3 w-84 sm:w-92 bg-white rounded-3xl border border-gray-100 shadow-2xl p-5 space-y-4 animate-in fade-in slide-in-from-bottom-3 relative text-left">

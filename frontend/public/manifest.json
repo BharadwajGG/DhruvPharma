@@ -1,0 +1,19 @@
+{
+  "name": "Dhruv Pharma & Healthcare",
+  "short_name": "Dhruv Pharma",
+  "description": "Order genuine medicines online with doorstep delivery across Nandurbar and 7 authorized hubs.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["medical", "shopping", "health"]
+}
