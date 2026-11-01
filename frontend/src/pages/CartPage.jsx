@@ -735,7 +735,7 @@ export default function CartPage() {
                                         <span>Delivery &amp; Patient Information</span>
                                     </h3>
                                     <span className="text-[11px] text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full font-bold">
-                                        Nandurbar District
+                                        Authorized Delivery Hubs
                                     </span>
                                 </div>
 
@@ -888,12 +888,12 @@ export default function CartPage() {
                                                 onChange={(e) => {
                                                     const val = e.target.value.replace(/\D/g, '')
                                                     const match = checkPincode(val)
-                                                    setFormData({
-                                                        ...formData,
+                                                    setFormData((prev) => ({
+                                                        ...prev,
                                                         pincode: val,
-                                                        district: match ? match.district : formData.district,
-                                                        areaName: match ? match.name : (val.length === 6 ? 'Outside Area' : formData.areaName),
-                                                    })
+                                                        district: match ? match.district : (val.length === 6 ? '' : prev.district),
+                                                        areaName: match ? match.name : (val.length === 6 ? '' : prev.areaName),
+                                                    }))
                                                     if (match) setLocationByPincode(match.pincode)
                                                 }}
                                                 className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 font-mono ${
@@ -941,7 +941,7 @@ export default function CartPage() {
                                                 <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
                                                 <div>
                                                     <h4 className="text-xs font-bold text-amber-950">
-                                                        Online cart delivery not available for PIN {formData.pincode} ({formData.district || 'this area'}).
+                                                        Online cart delivery not available for PIN {formData.pincode}.
                                                     </h4>
                                                     <p className="text-[11px] text-amber-900 mt-0.5 leading-relaxed">
                                                         Direct cart ordering is strictly restricted to our 7 authorized hubs: <strong>Nandurbar (425412), Shahada (425409), Taloda (425413), Nijampur (424305), Akkalkuwa (425415), Shirpur (424405) &amp; Sakri (424304)</strong>.
@@ -961,7 +961,7 @@ export default function CartPage() {
                                                     <span>Call Pharmacist (9503500725)</span>
                                                 </a>
                                                 <a
-                                                    href={`https://wa.me/919503500725?text=${encodeURIComponent(`Hello Dhruv Pharma, I need medicines outside the 7 hubs to PIN ${formData.pincode} (${formData.district || 'Location'}). Can you take my order and arrange parcel dispatch?`)}`}
+                                                    href={`https://wa.me/919503500725?text=${encodeURIComponent(`Hello Dhruv Pharma, I need medicines outside the 7 hubs to PIN ${formData.pincode}. Can you take my order and arrange parcel dispatch?`)}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="inline-flex items-center gap-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl shadow-xs transition-colors"
