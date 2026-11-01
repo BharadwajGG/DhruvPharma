@@ -1257,8 +1257,15 @@ async def upload_prescription(
         file_url = f"/uploads/prescriptions/{unique_filename}"
         saved_files.append(file_url)
 
-    count = db.query(PrescriptionModel).count()
-    rx_id = f"RX-{100 + count + 1}"
+    # Collision-proof sequential Prescription ID
+    last_rx = db.query(PrescriptionModel).order_by(PrescriptionModel.id.desc()).first()
+    next_num = (last_rx.id + 101) if last_rx else 101
+    while db.query(PrescriptionModel).filter(
+        (PrescriptionModel.rx_id == f"RX-{next_num}") | 
+        (PrescriptionModel.rx_id == f"RX-{str(next_num).zfill(3)}")
+    ).first():
+        next_num += 1
+    rx_id = f"RX-{next_num}"
 
     prescription = PrescriptionModel(
         rx_id=rx_id,
@@ -1271,9 +1278,13 @@ async def upload_prescription(
         files=json.dumps(saved_files),
         created_at=datetime.now(),
     )
-    db.add(prescription)
-    db.commit()
-    db.refresh(prescription)
+    try:
+        db.add(prescription)
+        db.commit()
+        db.refresh(prescription)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error while saving prescription: {str(e)}")
 
     return {
         "success": True,

@@ -194,9 +194,10 @@ export default function PrescriptionPage() {
             setSubmitted(true)
         } catch (err) {
             console.error('Prescription upload error:', err)
-            setUploadError(
-                err.message || 'Unable to connect to Dhruv Pharma server. Please ensure backend is running.'
-            )
+            const msg = err.message === 'Failed to fetch'
+                ? 'Unable to connect to Dhruv Pharma backend server. Please verify the Python server is running on port 8000.'
+                : (err.message || 'Unable to upload prescription. Please try again.')
+            setUploadError(msg)
         } finally {
             setIsUploading(false)
         }
