@@ -1142,8 +1142,11 @@ class AdminManualOrderCreate(BaseModel):
     address: str
     pincode: Optional[str] = ""
     items: List[AdminManualOrderItem]
-    paymentMethod: str = "COD"  # COD, UPI on Delivery
-    notes: Optional[str] = "Phone Order (taken by pharmacist on call)"
+    paymentMethod: str = "COD"  # COD, UPI, CASH, PAID
+    expectedDelivery: Optional[str] = "Expected in 3–4 Days"
+    status: Optional[str] = "confirmed"
+    deliveryAgent: Optional[str] = "Sanjay Kumar (Dhruv Express)"
+    notes: Optional[str] = "Order created by store pharmacist"
     callbackId: Optional[int] = None
 
 
@@ -1153,7 +1156,7 @@ async def create_admin_phone_order(
     db: Session = Depends(get_db),
 ):
     """
-    Allows pharmacist to place an order on behalf of a phone/callback customer.
+    Allows pharmacist to place an order on behalf of a customer.
     Auto-decrements stock, assigns DP sequential order ID, broadcasts new_order event,
     and if linked to a callback, marks it as 'converted'.
     """
@@ -1181,6 +1184,8 @@ async def create_admin_phone_order(
             if med and med.stock_quantity is not None:
                 med.stock_quantity = max(0, med.stock_quantity - item.qty)
 
+    pay_status = "paid" if payload.paymentMethod and payload.paymentMethod.upper() in ["PAID", "ONLINE_PAID", "PREPAID"] else "pending"
+
     new_order = OrderModel(
         order_id=order_id,
         customer_name=payload.customerName.strip(),
@@ -1196,12 +1201,12 @@ async def create_admin_phone_order(
         delivery_fee=float(delivery_fee),
         total_amount=float(total_amount),
         payment_method=payload.paymentMethod or "COD",
-        payment_status="pending",
+        payment_status=pay_status,
         prescription_file="",
-        status="confirmed",  # Confirmed directly by pharmacist
-        expected_delivery="Expected in 3–4 Days (Phone Order)",
-        delivery_agent="Sanjay Kumar (Dhruv Express)",
-        notes=payload.notes or "Phone Order confirmed by pharmacist",
+        status=payload.status or "confirmed",
+        expected_delivery=payload.expectedDelivery or "Expected in 3–4 Days",
+        delivery_agent=payload.deliveryAgent or "Sanjay Kumar (Dhruv Express)",
+        notes=payload.notes or "Order placed via Admin dashboard",
         created_at=datetime.now(),
     )
     db.add(new_order)
@@ -1221,8 +1226,130 @@ async def create_admin_phone_order(
 
     return {
         "success": True,
-        "message": f"Phone order #{order_id} created and confirmed successfully!",
+        "message": f"Order #{order_id} created successfully!",
         "order": order_dict,
+    }
+
+
+@app.get("/api/admin/orders/sample-csv")
+def download_sample_orders_csv():
+    """Generates a downloadable sample CSV template for bulk importing customer orders."""
+    sample_content = (
+        "Customer Name,Phone Number,District / Hub,Pincode,Delivery Address,Expected Delivery Window,Total Amount,Payment Method,Status,Ordered Items,Notes\n"
+        "Rajesh Patil,9823456789,Nandurbar,425412,Gokuldham Colony Near Station,Expected in 3–4 Days,520,COD,confirmed,Dolo 650 (x2 @ 30) | Shelcal 500 (x1 @ 120),Regular prescription order\n"
+        "Suresh Shinde,9988776655,Shahada,425409,Shop No 4 Market Yard,Expected in 3–4 Days,350,UPI,confirmed,Pan 40 (x2 @ 85),Phone order verification\n"
+    )
+    return Response(
+        content=sample_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=DHRUV_PHARMA_ORDERS_SAMPLE.csv"}
+    )
+
+
+@app.post("/api/admin/orders/import-csv")
+async def import_orders_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Imports customer orders from a CSV spreadsheet and adds them directly into the chart.
+    """
+    import csv
+    import io
+
+    if not file.filename.lower().endswith(('.csv', '.txt')):
+        raise HTTPException(status_code=400, detail="Only CSV files (.csv) are accepted.")
+
+    content = await file.read()
+    try:
+        decoded = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        decoded = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(decoded))
+    imported_orders = []
+
+    max_order = db.query(OrderModel).order_by(OrderModel.id.desc()).first()
+    next_num = (max_order.id + 140) if max_order else 101
+
+    for row in reader:
+        clean_row = {str(k).strip().lower(): (str(v).strip() if v else "") for k, v in row.items() if k}
+
+        name = clean_row.get("customer name") or clean_row.get("patient / customer") or clean_row.get("customer") or clean_row.get("name")
+        phone = clean_row.get("phone number") or clean_row.get("phone") or clean_row.get("mobile")
+        if not name or not phone:
+            continue
+
+        district = clean_row.get("district / hub") or clean_row.get("district") or clean_row.get("hub") or "Nandurbar"
+        pincode = clean_row.get("pincode") or clean_row.get("pin") or "425412"
+        address = clean_row.get("delivery address") or clean_row.get("address") or f"{district} Hub Area"
+        delivery_window = clean_row.get("expected delivery window") or clean_row.get("delivery window") or clean_row.get("expected delivery") or "Expected in 3–4 Days"
+        payment_method = clean_row.get("payment method") or clean_row.get("payment mode") or clean_row.get("payment") or "COD"
+        status = clean_row.get("status") or clean_row.get("order status") or "confirmed"
+        notes = clean_row.get("notes") or "Imported from CSV"
+
+        items_str = clean_row.get("ordered items") or clean_row.get("medicines") or clean_row.get("items") or ""
+        items_list = []
+        if items_str:
+            for part in items_str.split("|"):
+                part = part.strip()
+                if not part:
+                    continue
+                items_list.append({
+                    "id": 0,
+                    "name": part,
+                    "price": 50.0,
+                    "qty": 1,
+                    "salt": ""
+                })
+        if not items_list:
+            items_list = [{"id": 0, "name": "Prescribed Medicines", "price": 100.0, "qty": 1, "salt": ""}]
+
+        try:
+            total_amount = float(clean_row.get("total amount") or clean_row.get("amount") or clean_row.get("total") or 100.0)
+        except ValueError:
+            total_amount = 100.0
+
+        subtotal = max(0.0, total_amount - (0.0 if total_amount >= 300 else 40.0))
+        delivery_fee = 0.0 if total_amount >= 300 else 40.0
+
+        while db.query(OrderModel).filter(OrderModel.order_id == f"DP-{next_num}").first():
+            next_num += 1
+        order_id = f"DP-{next_num}"
+        next_num += 1
+
+        order = OrderModel(
+            order_id=order_id,
+            customer_name=name,
+            customer_phone=phone,
+            customer_email="",
+            user_id="",
+            district=district,
+            address=address,
+            pincode=pincode,
+            items=json.dumps(items_list),
+            subtotal=float(subtotal),
+            discount=0.0,
+            delivery_fee=float(delivery_fee),
+            total_amount=float(total_amount),
+            payment_method=payment_method,
+            payment_status="paid" if payment_method.upper() in ["PAID", "ONLINE"] else "pending",
+            prescription_file="",
+            status=status.lower() if status.lower() in ["pending", "confirmed", "dispatched", "delivered", "cancelled"] else "confirmed",
+            expected_delivery=delivery_window,
+            delivery_agent="Sanjay Kumar (Dhruv Express)",
+            notes=notes,
+            created_at=datetime.now(),
+        )
+        db.add(order)
+        imported_orders.append(order_id)
+
+    db.commit()
+    return {
+        "success": True,
+        "importedCount": len(imported_orders),
+        "importedOrderIds": imported_orders,
+        "message": f"Successfully imported {len(imported_orders)} customer orders into the chart!",
     }
 
 

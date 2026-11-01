@@ -30,6 +30,8 @@ import {
     Printer,
     Copy,
     MessageSquare,
+    Download,
+    Upload,
 } from 'lucide-react'
 import OrderInvoiceModal from '../../components/OrderInvoiceModal'
 
@@ -120,7 +122,7 @@ export default function AdminOrders() {
     const [medicinesCatalog, setMedicinesCatalog] = useState([])
     const [isSubmittingPhoneOrder, setIsSubmittingPhoneOrder] = useState(false)
 
-    // Phone Order Form
+    // Customer Order Form
     const [phoneOrderForm, setPhoneOrderForm] = useState({
         customerName: '',
         phone: '',
@@ -130,10 +132,24 @@ export default function AdminOrders() {
         address: '',
         items: [],
         paymentMethod: 'COD',
-        notes: 'Phone order taken by pharmacist',
+        expectedDelivery: 'Expected in 3–4 Days',
+        status: 'confirmed',
+        notes: '',
     })
     const [selectedMedId, setSelectedMedId] = useState('')
     const [selectedMedQty, setSelectedMedQty] = useState(1)
+
+    // Custom Medicine Entry for Manual Order
+    const [customMedName, setCustomMedName] = useState('')
+    const [customMedPrice, setCustomMedPrice] = useState('')
+    const [customMedQty, setCustomMedQty] = useState(1)
+    const [isCustomMedMode, setIsCustomMedMode] = useState(false)
+
+    // CSV Bulk Import State
+    const [importCsvModalOpen, setImportCsvModalOpen] = useState(false)
+    const [importCsvFile, setImportCsvFile] = useState(null)
+    const [isImportingCsv, setIsImportingCsv] = useState(false)
+    const [importCsvResult, setImportCsvResult] = useState(null)
 
     // ── Emergency Admin Order Cancellation State ──
     const [adminCancelModalOpen, setAdminCancelModalOpen] = useState(false)
@@ -510,31 +526,41 @@ export default function AdminOrders() {
         }
     }
 
-    // Open Phone Order Modal (optionally linked to a callback)
+    // Open Order Creation Modal (optionally linked to a callback)
     const handleOpenPhoneOrder = (callbackItem = null) => {
         setSelectedCallbackForOrder(callbackItem)
+        const hubPincode = callbackItem
+            ? (DELIVERY_HUBS.find(h => h.name === callbackItem.district)?.pincode || '425412')
+            : '425412'
+
         setPhoneOrderForm({
             customerName: callbackItem ? callbackItem.customerName : '',
             phone: callbackItem ? callbackItem.phone : '',
             email: '',
             district: callbackItem ? callbackItem.district : 'Nandurbar',
             address: '',
-            pincode: '',
+            pincode: hubPincode,
             items: [],
             paymentMethod: 'COD',
+            expectedDelivery: 'Expected in 3–4 Days',
+            status: 'confirmed',
             notes: callbackItem
-                ? `Phone order from Callback #${callbackItem.requestId}. Notes: ${callbackItem.medicinesNeeded || 'None'}`
-                : 'Phone order taken on call by pharmacist',
+                ? `Order from Callback #${callbackItem.requestId}. Notes: ${callbackItem.medicinesNeeded || 'None'}`
+                : '',
         })
         setSelectedMedId('')
         setSelectedMedQty(1)
+        setCustomMedName('')
+        setCustomMedPrice('')
+        setCustomMedQty(1)
+        setIsCustomMedMode(false)
         if (callbackItem) {
             setCallbacksModalOpen(false)
         }
         setPhoneOrderModalOpen(true)
     }
 
-    // Add item to phone order
+    // Add item from catalog to order
     const handleAddItemToPhoneOrder = () => {
         if (!selectedMedId) return
         const med = medicinesCatalog.find((m) => String(m.id) === String(selectedMedId))
@@ -568,7 +594,39 @@ export default function AdminOrders() {
         setSelectedMedQty(1)
     }
 
-    // Remove item from phone order
+    // Add custom medicine to order
+    const handleAddCustomMedicine = () => {
+        const name = customMedName.trim()
+        const price = parseFloat(customMedPrice)
+        const qty = Math.max(1, parseInt(customMedQty) || 1)
+        if (!name) {
+            alert('Please enter medicine name.')
+            return
+        }
+        if (isNaN(price) || price <= 0) {
+            alert('Please enter a valid price.')
+            return
+        }
+        setPhoneOrderForm((prev) => ({
+            ...prev,
+            items: [
+                ...prev.items,
+                {
+                    id: 0,
+                    name,
+                    price,
+                    qty,
+                    salt: 'Direct Addition',
+                    brand: 'Dhruv Pharma',
+                },
+            ],
+        }))
+        setCustomMedName('')
+        setCustomMedPrice('')
+        setCustomMedQty(1)
+    }
+
+    // Remove item from order
     const handleRemoveItemFromPhoneOrder = (index) => {
         setPhoneOrderForm((prev) => ({
             ...prev,
@@ -576,15 +634,15 @@ export default function AdminOrders() {
         }))
     }
 
-    // Submit Phone Order
+    // Submit New Customer Order
     const handleSubmitPhoneOrder = async (e) => {
         e.preventDefault()
         if (!phoneOrderForm.customerName.trim() || !phoneOrderForm.phone.trim() || !phoneOrderForm.address.trim()) {
-            alert('Customer name, 10-digit phone, and delivery address are required.')
+            alert('Customer name, phone number, and delivery address are required.')
             return
         }
         if (phoneOrderForm.items.length === 0) {
-            alert('Please add at least one medicine item to this phone order.')
+            alert('Please add at least one medicine item to this order.')
             return
         }
 
@@ -593,13 +651,15 @@ export default function AdminOrders() {
             const payload = {
                 customerName: phoneOrderForm.customerName.trim(),
                 phone: phoneOrderForm.phone.trim(),
-                email: phoneOrderForm.email.trim(),
+                email: (phoneOrderForm.email || '').trim(),
                 district: phoneOrderForm.district,
                 address: phoneOrderForm.address.trim(),
-                pincode: phoneOrderForm.pincode.trim(),
+                pincode: (phoneOrderForm.pincode || '').trim(),
                 items: phoneOrderForm.items,
                 paymentMethod: phoneOrderForm.paymentMethod,
-                notes: phoneOrderForm.notes.trim(),
+                expectedDelivery: phoneOrderForm.expectedDelivery,
+                status: phoneOrderForm.status,
+                notes: (phoneOrderForm.notes || '').trim(),
                 callbackId: selectedCallbackForOrder ? selectedCallbackForOrder.id : null,
             }
 
@@ -610,19 +670,123 @@ export default function AdminOrders() {
             })
             const result = await res.json()
             if (!res.ok) {
-                throw new Error(result.detail || 'Failed to place phone order.')
+                throw new Error(result.detail || 'Failed to create customer order.')
             }
 
             setPhoneOrderModalOpen(false)
             setSelectedCallbackForOrder(null)
             fetchOrders()
             fetchCallbacks()
-            alert(result.message || 'Phone order created successfully!')
+            alert(result.message || 'Order created and added to chart successfully!')
         } catch (err) {
-            console.error('Phone order error:', err)
-            alert(err.message || 'Failed to create phone order.')
+            console.error('Order creation error:', err)
+            alert(err.message || 'Failed to create order.')
         } finally {
             setIsSubmittingPhoneOrder(false)
+        }
+    }
+
+    // Export All Orders to CSV File
+    const handleExportOrdersCSV = () => {
+        if (!orders || orders.length === 0) {
+            alert('No orders available to export.')
+            return
+        }
+
+        const headers = [
+            'Order ID',
+            'Order Date',
+            'Customer Name',
+            'Phone Number',
+            'District / Hub',
+            'Pincode',
+            'Delivery Address',
+            'Expected Delivery Window',
+            'Total Amount (₹)',
+            'Payment Method',
+            'Order Status',
+            'Ordered Medicines',
+            'Notes',
+        ]
+
+        const csvRows = [headers.join(',')]
+
+        orders.forEach((ord) => {
+            const dateStr = ord.createdAt || ord.created_at || ''
+            const itemsSummary = (ord.items || [])
+                .map((it) => `${it.name || 'Medicine'} (x${it.qty || 1} @ ₹${it.price || 0})`)
+                .join(' | ')
+
+            const escape = (val) => {
+                if (val === null || val === undefined) return '""'
+                const str = String(val).replace(/"/g, '""')
+                return `"${str}"`
+            }
+
+            const row = [
+                escape(ord.orderId || ord.order_id || ord.id),
+                escape(dateStr),
+                escape(ord.customerName || ord.customer_name),
+                escape(ord.phone || ord.customer_phone),
+                escape(ord.district),
+                escape(ord.pincode),
+                escape(ord.address),
+                escape(ord.deliveryTime || ord.expected_delivery || 'Expected in 3–4 Days'),
+                escape(ord.totalAmount || ord.total_amount || 0),
+                escape(ord.paymentMethod || ord.payment_method || 'COD'),
+                escape(STATUS_CONFIG[ord.status]?.label || ord.status),
+                escape(itemsSummary),
+                escape(ord.notes || ''),
+            ]
+
+            csvRows.push(row.join(','))
+        })
+
+        const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csvRows.join('\n'))
+        const link = document.createElement('a')
+        link.setAttribute('href', csvContent)
+        const timestamp = new Date().toISOString().split('T')[0]
+        link.setAttribute('download', `DhruvPharma_Orders_${timestamp}.csv`)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+    }
+
+    // Import Orders from CSV File
+    const handleImportOrdersCSV = async (e) => {
+        e.preventDefault()
+        if (!importCsvFile) {
+            alert('Please select a CSV file to upload.')
+            return
+        }
+
+        setIsImportingCsv(true)
+        setImportCsvResult(null)
+        try {
+            const formData = new FormData()
+            formData.append('file', importCsvFile)
+
+            const res = await fetch('http://localhost:8000/api/admin/orders/import-csv', {
+                method: 'POST',
+                body: formData,
+            })
+            const data = await res.json()
+            if (!res.ok) {
+                throw new Error(data.detail || 'Failed to import orders CSV.')
+            }
+
+            setImportCsvResult({ type: 'success', message: data.message, count: data.importedCount })
+            fetchOrders()
+            setTimeout(() => {
+                setImportCsvModalOpen(false)
+                setImportCsvFile(null)
+                setImportCsvResult(null)
+            }, 1800)
+        } catch (err) {
+            console.error('CSV Import error:', err)
+            setImportCsvResult({ type: 'error', message: err.message || 'Error uploading CSV' })
+        } finally {
+            setIsImportingCsv(false)
         }
     }
 
@@ -729,14 +893,37 @@ export default function AdminOrders() {
                             )}
                         </button>
 
-                        {/* Take Phone Order Button */}
+                        {/* + Add Order Button */}
                         <button
                             type="button"
                             onClick={() => handleOpenPhoneOrder()}
                             className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            title="Add medicines and create customer order"
                         >
-                            <Plus size={14} />
-                            <span>+ New Phone Order</span>
+                            <Plus size={15} />
+                            <span>+ Add Order</span>
+                        </button>
+
+                        {/* Export CSV Button */}
+                        <button
+                            type="button"
+                            onClick={handleExportOrdersCSV}
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            title="Export all orders from chart to CSV spreadsheet"
+                        >
+                            <Download size={14} className="text-blue-600" />
+                            <span>Export CSV</span>
+                        </button>
+
+                        {/* Import CSV Button */}
+                        <button
+                            type="button"
+                            onClick={() => setImportCsvModalOpen(true)}
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            title="Import customer orders from CSV file"
+                        >
+                            <Upload size={14} className="text-emerald-700" />
+                            <span>Import CSV</span>
                         </button>
 
                         {/* Audio Toggle */}
@@ -1497,7 +1684,7 @@ export default function AdminOrders() {
                     </div>
                 )}
 
-                {/* ── 2. "TAKE PHONE ORDER" PHARMACIST POS MODAL ── */}
+                {/* ── 2. "CREATE CUSTOMER ORDER / ADD MEDICINES" MODAL ── */}
                 {phoneOrderModalOpen && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
                         <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 border border-gray-100 shadow-2xl relative max-h-[92vh] flex flex-col">
@@ -1505,35 +1692,36 @@ export default function AdminOrders() {
                             <button
                                 type="button"
                                 onClick={() => setPhoneOrderModalOpen(false)}
-                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
                             >
                                 <X size={18} />
                             </button>
 
                             <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100">
-                                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
                                     <Plus size={20} />
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <h3 className="font-bold text-gray-900 text-base">Take Phone Order</h3>
+                                        <h3 className="font-bold text-gray-900 text-base">Create Customer Order</h3>
                                         {selectedCallbackForOrder && (
                                             <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                                                From {selectedCallbackForOrder.requestId}
+                                                From Callback {selectedCallbackForOrder.requestId}
                                             </span>
                                         )}
                                     </div>
                                     <p className="text-xs text-gray-500">
-                                        Create and confirm a manual order directly while speaking with a customer on the phone
+                                        Add medicines, delivery window, and fill all columns to place directly into the orders chart
                                     </p>
                                 </div>
                             </div>
 
                             <form onSubmit={handleSubmitPhoneOrder} className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
-                                {/* Customer Info */}
+                                {/* 1. Customer Info */}
                                 <div className="bg-gray-50/70 p-3.5 rounded-2xl border border-gray-100 space-y-3">
-                                    <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider">
-                                        1. Caller / Patient Details
+                                    <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                        <UserCheck size={14} className="text-emerald-700" />
+                                        <span>1. Patient / Customer Details</span>
                                     </p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div>
@@ -1542,7 +1730,7 @@ export default function AdminOrders() {
                                             </label>
                                             <input
                                                 type="text"
-                                                placeholder="Caller full name"
+                                                placeholder="e.g. Narendra Chavan"
                                                 value={phoneOrderForm.customerName}
                                                 onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, customerName: e.target.value })}
                                                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
@@ -1563,7 +1751,7 @@ export default function AdminOrders() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block font-semibold text-gray-700 mb-1">Serviceable Hub / Area</label>
+                                            <label className="block font-semibold text-gray-700 mb-1">Hub / District</label>
                                             <select
                                                 value={phoneOrderForm.district}
                                                 onChange={(e) => {
@@ -1596,11 +1784,11 @@ export default function AdminOrders() {
                                         </div>
                                         <div className="sm:col-span-2">
                                             <label className="block font-semibold text-gray-700 mb-1">
-                                                Delivery Address <span className="text-red-500">*</span>
+                                                Full Delivery Address <span className="text-red-500">*</span>
                                             </label>
                                             <input
                                                 type="text"
-                                                placeholder="Flat/House no., Street, Area, Landmark"
+                                                placeholder="House/Shop no., Street, Area, Landmark"
                                                 value={phoneOrderForm.address}
                                                 onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, address: e.target.value })}
                                                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
@@ -1610,41 +1798,110 @@ export default function AdminOrders() {
                                     </div>
                                 </div>
 
-                                {/* Medicine Selector */}
+                                {/* 2. Medicine Selector */}
                                 <div className="bg-gray-50/70 p-3.5 rounded-2xl border border-gray-100 space-y-3">
-                                    <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider">
-                                        2. Select Medicines
-                                    </p>
-                                    <div className="flex gap-2 items-center">
-                                        <select
-                                            value={selectedMedId}
-                                            onChange={(e) => setSelectedMedId(e.target.value)}
-                                            className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 text-xs"
-                                        >
-                                            <option value="">-- Choose Medicine from Inventory --</option>
-                                            {medicinesCatalog.map((med) => (
-                                                <option key={med.id} value={med.id}>
-                                                    {med.name} (₹{med.sellingPrice || med.price}) · Stock: {med.stock_quantity ?? 'Available'}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={selectedMedQty}
-                                            onChange={(e) => setSelectedMedQty(e.target.value)}
-                                            className="w-16 px-2.5 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 text-xs text-center font-bold"
-                                            placeholder="Qty"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={handleAddItemToPhoneOrder}
-                                            disabled={!selectedMedId}
-                                            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold px-3 py-2 rounded-xl transition-colors shrink-0 cursor-pointer"
-                                        >
-                                            + Add
-                                        </button>
+                                    <div className="flex items-center justify-between">
+                                        <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                            <Pill size={14} className="text-blue-600" />
+                                            <span>2. Add Medicines to Order</span>
+                                        </p>
+                                        <div className="flex rounded-lg border border-gray-200 p-0.5 bg-white text-[11px]">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCustomMedMode(false)}
+                                                className={`px-2.5 py-1 rounded font-semibold cursor-pointer transition-colors ${
+                                                    !isCustomMedMode ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                                                }`}
+                                            >
+                                                From Catalog
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCustomMedMode(true)}
+                                                className={`px-2.5 py-1 rounded font-semibold cursor-pointer transition-colors ${
+                                                    isCustomMedMode ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                                                }`}
+                                            >
+                                                + Custom Medicine
+                                            </button>
+                                        </div>
                                     </div>
+
+                                    {!isCustomMedMode ? (
+                                        <div className="flex gap-2 items-center">
+                                            <select
+                                                value={selectedMedId}
+                                                onChange={(e) => setSelectedMedId(e.target.value)}
+                                                className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 text-xs"
+                                            >
+                                                <option value="">-- Choose Medicine from Inventory --</option>
+                                                {medicinesCatalog.map((med) => (
+                                                    <option key={med.id} value={med.id}>
+                                                        {med.name} (₹{med.sellingPrice || med.price}) · Stock: {med.stock_quantity ?? 'Available'}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={selectedMedQty}
+                                                onChange={(e) => setSelectedMedQty(e.target.value)}
+                                                className="w-16 px-2.5 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 text-xs text-center font-bold"
+                                                placeholder="Qty"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleAddItemToPhoneOrder}
+                                                disabled={!selectedMedId}
+                                                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold px-3 py-2 rounded-xl transition-colors shrink-0 cursor-pointer"
+                                            >
+                                                + Add
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-white p-2.5 rounded-xl border border-gray-200">
+                                            <div className="sm:col-span-6">
+                                                <label className="block text-[10px] font-semibold text-gray-600 mb-0.5">Medicine Name</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. Paracetamol 650mg"
+                                                    value={customMedName}
+                                                    onChange={(e) => setCustomMedName(e.target.value)}
+                                                    className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
+                                                />
+                                            </div>
+                                            <div className="sm:col-span-3">
+                                                <label className="block text-[10px] font-semibold text-gray-600 mb-0.5">Price (₹)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="₹ Price"
+                                                    value={customMedPrice}
+                                                    onChange={(e) => setCustomMedPrice(e.target.value)}
+                                                    className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-blue-500"
+                                                />
+                                            </div>
+                                            <div className="sm:col-span-1">
+                                                <label className="block text-[10px] font-semibold text-gray-600 mb-0.5">Qty</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={customMedQty}
+                                                    onChange={(e) => setCustomMedQty(e.target.value)}
+                                                    className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-center font-bold outline-none focus:border-blue-500"
+                                                />
+                                            </div>
+                                            <div className="sm:col-span-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleAddCustomMedicine}
+                                                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
+                                                >
+                                                    + Add
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Added items list */}
                                     {phoneOrderForm.items.length > 0 ? (
@@ -1662,7 +1919,7 @@ export default function AdminOrders() {
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveItemFromPhoneOrder(idx)}
-                                                            className="text-red-500 hover:text-red-700 p-1 rounded"
+                                                            className="text-red-500 hover:text-red-700 p-1 rounded cursor-pointer"
                                                         >
                                                             <X size={14} />
                                                         </button>
@@ -1672,12 +1929,63 @@ export default function AdminOrders() {
                                         </div>
                                     ) : (
                                         <p className="text-gray-400 text-[11px] italic text-center py-2">
-                                            No medicines added yet. Choose a medicine above and tap "+ Add".
+                                            No medicines added yet. Select from catalog or type a custom medicine above.
                                         </p>
                                     )}
                                 </div>
 
-                                {/* Payment & Total */}
+                                {/* 3. Expected Delivery Window & Status (Matching Chart Columns) */}
+                                <div className="bg-gray-50/70 p-3.5 rounded-2xl border border-gray-100 space-y-3">
+                                    <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                        <Truck size={14} className="text-purple-600" />
+                                        <span>3. Chart Columns: Delivery Window &amp; Order Status</span>
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Expected Delivery Window
+                                            </label>
+                                            <select
+                                                value={phoneOrderForm.expectedDelivery}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, expectedDelivery: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 font-medium"
+                                            >
+                                                <option value="Expected in 3–4 Days">Expected in 3–4 Days</option>
+                                                <option value="Expected in 1–2 Days">Expected in 1–2 Days (Express)</option>
+                                                <option value="Same Day Delivery">Same Day Delivery (Local)</option>
+                                                <option value="Expected in 7 Days">Expected in 7 Days (Rural Dispatch)</option>
+                                                <option value="Walk-in / Immediate Pickup">Walk-in / Immediate Pickup</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block font-semibold text-gray-700 mb-1">
+                                                Initial Order Status
+                                            </label>
+                                            <select
+                                                value={phoneOrderForm.status}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, status: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500 font-semibold"
+                                            >
+                                                <option value="confirmed">🔵 Packed &amp; Ready (confirmed)</option>
+                                                <option value="pending">🟡 New Order (pending)</option>
+                                                <option value="dispatched">🟣 Out for Delivery (dispatched)</option>
+                                                <option value="delivered">🟢 Delivered (delivered)</option>
+                                            </select>
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <label className="block font-semibold text-gray-700 mb-1">Order Notes (Optional)</label>
+                                            <input
+                                                type="text"
+                                                placeholder="e.g. Regular monthly BP medicines or Special packaging"
+                                                value={phoneOrderForm.notes}
+                                                onChange={(e) => setPhoneOrderForm({ ...phoneOrderForm, notes: e.target.value })}
+                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-blue-500"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 4. Payment Mode & Total Financial Breakdown */}
                                 <div className="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-100 space-y-2">
                                     <div className="flex justify-between items-center text-xs">
                                         <span className="text-blue-900 font-semibold">Payment Mode:</span>
@@ -1688,6 +1996,8 @@ export default function AdminOrders() {
                                         >
                                             <option value="COD">💵 Cash on Delivery (COD)</option>
                                             <option value="UPI">📱 UPI on Delivery</option>
+                                            <option value="PAID">💳 Paid Online / Prepaid</option>
+                                            <option value="CASH">🏢 Cash at Store Counter</option>
                                         </select>
                                     </div>
 
@@ -1718,17 +2028,113 @@ export default function AdminOrders() {
                                 <button
                                     type="submit"
                                     disabled={isSubmittingPhoneOrder}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 text-xs cursor-pointer"
+                                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold py-3.5 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 text-xs cursor-pointer"
                                 >
                                     {isSubmittingPhoneOrder ? (
                                         <>
-                                            <Loader2 size={15} className="animate-spin" />
-                                            <span>Creating Order...</span>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            <span>Adding Order to Chart...</span>
                                         </>
                                     ) : (
                                         <>
-                                            <CheckCircle size={15} />
-                                            <span>Confirm &amp; Place Phone Order</span>
+                                            <CheckCircle size={16} />
+                                            <span>Confirm &amp; Add Order to Chart</span>
+                                        </>
+                                    )}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── 3. BULK IMPORT ORDERS FROM CSV MODAL ── */}
+                {importCsvModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 border border-gray-100 shadow-2xl relative">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setImportCsvModalOpen(false)
+                                    setImportCsvFile(null)
+                                    setImportCsvResult(null)
+                                }}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-gray-100">
+                                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                    <Upload size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-gray-900 text-base">Bulk Import Orders (CSV)</h3>
+                                    <p className="text-xs text-gray-500">
+                                        Fill all columns in a spreadsheet and upload to populate the chart
+                                    </p>
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleImportOrdersCSV} className="space-y-4 text-xs">
+                                <div className="bg-blue-50/70 p-3.5 rounded-2xl border border-blue-100 space-y-2">
+                                    <p className="font-bold text-blue-900 text-xs">Need a CSV template?</p>
+                                    <p className="text-[11px] text-blue-700 leading-relaxed">
+                                        Download our sample CSV with pre-filled columns matching the chart (Customer Name, Phone, Hub, Address, Delivery Window, Amount, Medicines).
+                                    </p>
+                                    <a
+                                        href="http://localhost:8000/api/admin/orders/sample-csv"
+                                        download="DHRUV_PHARMA_ORDERS_SAMPLE.csv"
+                                        className="inline-flex items-center gap-1.5 bg-white text-blue-700 font-bold px-3 py-1.5 rounded-lg border border-blue-200 text-xs shadow-2xs hover:bg-blue-50 transition-colors"
+                                    >
+                                        <Download size={13} />
+                                        <span>Download Sample Orders CSV</span>
+                                    </a>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="block font-semibold text-gray-700">
+                                        Select CSV File to Upload
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept=".csv,.txt"
+                                        onChange={(e) => setImportCsvFile(e.target.files[0] || null)}
+                                        className="w-full text-xs file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer border border-gray-200 rounded-xl p-2"
+                                        required
+                                    />
+                                </div>
+
+                                {importCsvResult && (
+                                    <div
+                                        className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                                            importCsvResult.type === 'success'
+                                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                : 'bg-rose-50 text-rose-800 border border-rose-200'
+                                        }`}
+                                    >
+                                        {importCsvResult.type === 'success' ? (
+                                            <CheckCircle size={16} className="text-emerald-600" />
+                                        ) : (
+                                            <AlertCircle size={16} className="text-rose-600" />
+                                        )}
+                                        <span>{importCsvResult.message}</span>
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    disabled={isImportingCsv || !importCsvFile}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    {isImportingCsv ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            <span>Importing Orders to Chart...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload size={16} />
+                                            <span>Upload &amp; Add to Orders Chart</span>
                                         </>
                                     )}
                                 </button>
