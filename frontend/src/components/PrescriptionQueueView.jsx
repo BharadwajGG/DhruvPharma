@@ -271,22 +271,40 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                                 >
                                     <Eye size={13} /> Review
                                 </button>
-                                {rx.status === 'pending' && (
+                                {['pending', 'reviewed'].includes(rx.status) ? (
                                     <>
                                         <button
                                             onClick={() => handleUpdateStatus(rx.id, 'approved')}
-                                            className="flex items-center gap-1.5 bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                                            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                                            title="Approve this prescription"
                                         >
                                             <CheckCircle size={13} /> Approve
                                         </button>
                                         <button
                                             onClick={() => handleUpdateStatus(rx.id, 'rejected')}
-                                            className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                                            className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-semibold px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                                            title="Reject this prescription"
                                         >
                                             <XCircle size={13} /> Reject
                                         </button>
                                     </>
-                                )}
+                                ) : rx.status === 'approved' ? (
+                                    <button
+                                        onClick={() => handleUpdateStatus(rx.id, 'rejected')}
+                                        className="flex items-center gap-1.5 text-xs text-rose-600 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-200 font-semibold transition-colors cursor-pointer"
+                                        title="Change decision to Rejected"
+                                    >
+                                        <XCircle size={12} /> Reject
+                                    </button>
+                                ) : rx.status === 'rejected' ? (
+                                    <button
+                                        onClick={() => handleUpdateStatus(rx.id, 'approved')}
+                                        className="flex items-center gap-1.5 text-xs text-emerald-700 hover:bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 font-semibold transition-colors cursor-pointer"
+                                        title="Change decision to Approved"
+                                    >
+                                        <CheckCircle size={12} /> Approve
+                                    </button>
+                                ) : null}
                                 <button
                                     onClick={() => handleDeletePrescription(rx.id, rx.patient)}
                                     className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
@@ -414,25 +432,59 @@ export default function PrescriptionQueueView({ title = 'Prescriptions', subtitl
                                 </p>
                             </div>
 
-                            {selected.status === 'pending' && (
+                            {['pending', 'reviewed'].includes(selected.status) && (
                                 <div className="flex gap-3">
                                     <button
                                         onClick={() => {
                                             handleUpdateStatus(selected.id, 'approved')
                                             setSelected(null)
                                         }}
-                                        className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl transition-colors"
+                                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold py-3.5 rounded-xl shadow-xs transition-all cursor-pointer"
                                     >
-                                        <CheckCircle size={16} /> Approve &amp; Create Order
+                                        <CheckCircle size={17} /> Approve Prescription
                                     </button>
                                     <button
                                         onClick={() => {
                                             handleUpdateStatus(selected.id, 'rejected')
                                             setSelected(null)
                                         }}
-                                        className="flex-1 flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-semibold py-3 rounded-xl transition-colors"
+                                        className="flex-1 flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 active:scale-98 text-rose-700 border border-rose-200 font-bold py-3.5 rounded-xl transition-all cursor-pointer"
                                     >
-                                        <XCircle size={16} /> Reject
+                                        <XCircle size={17} /> Reject Prescription
+                                    </button>
+                                </div>
+                            )}
+
+                            {selected.status === 'approved' && (
+                                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+                                    <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
+                                        <CheckCircle size={16} className="text-emerald-600" /> This prescription is currently Approved
+                                    </span>
+                                    <button
+                                        onClick={() => {
+                                            handleUpdateStatus(selected.id, 'rejected')
+                                            setSelected(null)
+                                        }}
+                                        className="text-xs text-rose-600 hover:text-rose-800 font-bold hover:underline cursor-pointer"
+                                    >
+                                        Change to Rejected
+                                    </button>
+                                </div>
+                            )}
+
+                            {selected.status === 'rejected' && (
+                                <div className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-xl p-3.5">
+                                    <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                                        <XCircle size={16} className="text-rose-600" /> This prescription is currently Rejected
+                                    </span>
+                                    <button
+                                        onClick={() => {
+                                            handleUpdateStatus(selected.id, 'approved')
+                                            setSelected(null)
+                                        }}
+                                        className="text-xs text-emerald-700 hover:text-emerald-900 font-bold hover:underline cursor-pointer"
+                                    >
+                                        Change to Approved
                                     </button>
                                 </div>
                             )}
