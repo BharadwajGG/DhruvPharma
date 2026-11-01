@@ -1559,8 +1559,18 @@ def download_sample_csv():
 @app.post("/api/inventory/upload")
 def upload_distributor_inventory(
     file: UploadFile = File(...),
+    mode: str = Form("merge"), # "merge" (default) or "replace"
+    publish_immediately: bool = Form(False),
     db: Session = Depends(get_db),
 ):
+    """
+    Intelligent bulk distributor CSV ingestion engine.
+    Supports 2 upload modes:
+      - 'merge': Updates matching medicines & keeps existing catalog safe.
+      - 'replace': Clears previous catalog and starts 100% fresh with new distributor file.
+    Extracts all 24 CSV columns including real CDN image URLs (webp/jpg/png),
+    uses, side effects, interactions, storage, and dosage instructions.
+    """
     if not file.filename.lower().endswith((".csv", ".txt")):
         raise HTTPException(status_code=400, detail="Only CSV files (.csv) are currently supported.")
 
@@ -1588,7 +1598,8 @@ def upload_distributor_inventory(
 
     headers = [h.strip() for h in rows[0]]
 
-    code_idx = find_column_index(headers, ["itemcode", "item_code", "code", "itemid", "item_id", "productcode", "itemno"])
+    code_idx = find_column_index(headers, ["itemcode", "item_code", "code", "productcode", "itemno", "itemid", "item_id"])
+    item_id_idx = find_column_index(headers, ["itemid", "item_id"])
     name_idx = find_column_index(headers, ["name", "itemname", "item_name", "product", "description", "medicinename"])
     company_idx = find_column_index(headers, ["company", "mfg", "manufacturer", "brand", "mfgby"])
     salt_idx = find_column_index(headers, ["salt", "composition", "formulation", "generic", "genericname"])
@@ -1596,10 +1607,17 @@ def upload_distributor_inventory(
     rate_idx = find_column_index(headers, ["rate", "cost", "costprice", "purchaserate", "ptr", "wrate"])
     stock_idx = find_column_index(headers, ["stock", "qty", "quantity", "balance", "curstock", "closingstock"])
     image_idx = find_column_index(headers, [
-        "image", "imageurl", "image_url", "image_link", "imagelink",
+        "images", "image", "imageurl", "image_url", "image_link", "imagelink",
         "img", "imgurl", "img_url", "photo", "photourl", "picture",
         "pictureurl", "productimage", "product_image", "packshot", "url"
     ])
+    cat_idx = find_column_index(headers, ["category", "group", "section", "dept"])
+    uses_idx = find_column_index(headers, ["uses", "use", "indication", "indications", "therapeutic"])
+    interactions_idx = find_column_index(headers, ["interactions", "interaction", "druginteractions", "warnings"])
+    side_effects_idx = find_column_index(headers, ["sideeffects", "side_effects", "sideeffect", "side_effect", "adverseeffects"])
+    how_to_use_idx = find_column_index(headers, ["howtouse", "how_to_use", "dosage", "directions", "instructions"])
+    storage_idx = find_column_index(headers, ["storage", "storageconditions", "storage_conditions"])
+    hsn_idx = find_column_index(headers, ["hsncode", "hsn_code", "hsn", "hsnname"])
 
     if name_idx is None:
         raise HTTPException(
@@ -1607,8 +1625,27 @@ def upload_distributor_inventory(
             detail="Could not find medicine Name column in CSV. Found headers: " + ", ".join(headers),
         )
 
-    # Pre-index existing catalog in memory to make bulk ingestion instant (< 0.5s)
-    existing_map = {m.item_code: m for m in db.query(MedicineModel).all() if m.item_code}
+    mode_clean = str(mode or "merge").strip().lower()
+    is_replace_mode = mode_clean in ["replace", "fresh", "clean"]
+    replaced_count = 0
+
+    if is_replace_mode:
+        # Fresh Start: Safely wipe previous medicine catalog
+        replaced_count = db.query(MedicineModel).delete()
+        db.commit()
+        existing_map = {}
+    else:
+        # Merge: Pre-index existing catalog in memory for instant lookups (handles zero-padding variations and names)
+        existing_map = {}
+        name_map = {}
+        for m in db.query(MedicineModel).all():
+            if m.item_code:
+                code_str = str(m.item_code).strip()
+                existing_map[code_str] = m
+                existing_map[code_str.lstrip("0")] = m
+                existing_map[code_str.zfill(6)] = m
+            if m.name:
+                name_map[m.name.strip().upper()] = m
 
     category_counts: Dict[str, int] = {}
     total_parsed = 0
@@ -1626,11 +1663,14 @@ def upload_distributor_inventory(
 
         total_parsed += 1
 
-        raw_code = (
-            row[code_idx].strip()
-            if code_idx is not None and code_idx < len(row) and row[code_idx].strip()
-            else f"DIST-{int(datetime.utcnow().timestamp())}-{row_idx}"
-        )
+        # Extract Item Code (checks itemcode first, then itemid, then generates)
+        raw_code = ""
+        if code_idx is not None and code_idx < len(row) and row[code_idx].strip():
+            raw_code = row[code_idx].strip()
+        elif item_id_idx is not None and item_id_idx < len(row) and row[item_id_idx].strip():
+            raw_code = row[item_id_idx].strip()
+        else:
+            raw_code = f"MED-{int(datetime.utcnow().timestamp())}-{row_idx}"
 
         raw_company = (
             row[company_idx].strip()
@@ -1666,23 +1706,49 @@ def upload_distributor_inventory(
             except ValueError:
                 raw_stock = 10
 
-        category, requires_rx = categorize_medicine(name=raw_name, salt=cleaned_salt)
+        # Category resolution
+        explicit_cat = row[cat_idx].strip() if cat_idx is not None and cat_idx < len(row) else ""
+        if explicit_cat and explicit_cat.lower() not in ["", "none", "null"]:
+            category = explicit_cat
+            _, requires_rx = categorize_medicine(name=raw_name, salt=cleaned_salt)
+        else:
+            category, requires_rx = categorize_medicine(name=raw_name, salt=cleaned_salt)
+
         category_counts[category] = category_counts.get(category, 0) + 1
         if requires_rx:
             rx_flagged_count += 1
 
         selling_price = calculate_selling_price(mrp=raw_mrp, cost_price=raw_rate, discount_pct=12.0)
 
-        raw_image_url = (
-            row[image_idx].strip()
-            if image_idx is not None and image_idx < len(row) and row[image_idx].strip()
-            else ""
-        )
+        # Image URL sanitization & validation (handles CDN links with params, webp, jpg, png)
+        raw_image_url = ""
+        if image_idx is not None and image_idx < len(row):
+            candidate_url = row[image_idx].strip().strip("'\"")
+            if candidate_url.startswith("http://") or candidate_url.startswith("https://") or candidate_url.startswith("/"):
+                raw_image_url = candidate_url
+
         pack_shot_url = raw_image_url or resolve_brand_pack_shot(raw_name, raw_company)
 
-        existing = existing_map.get(raw_code)
+        # Rich Clinical Data
+        raw_uses = row[uses_idx].strip() if uses_idx is not None and uses_idx < len(row) else ""
+        raw_interactions = row[interactions_idx].strip() if interactions_idx is not None and interactions_idx < len(row) else ""
+        raw_side_effects = row[side_effects_idx].strip() if side_effects_idx is not None and side_effects_idx < len(row) else ""
+        raw_how_to_use = row[how_to_use_idx].strip() if how_to_use_idx is not None and how_to_use_idx < len(row) else ""
+        raw_storage = row[storage_idx].strip() if storage_idx is not None and storage_idx < len(row) else ""
+        if raw_storage:
+            # Clean encoding artifacts e.g. "Store Below 30? C" -> "Store Below 30°C"
+            raw_storage = re.sub(r"(\d+)\s*[\?]\s*C", r"\1°C", raw_storage)
+            raw_storage = raw_storage.replace("?", "°")
+        raw_hsn = row[hsn_idx].strip() if hsn_idx is not None and hsn_idx < len(row) else ""
 
-        if existing:
+        existing = (
+            existing_map.get(raw_code)
+            or existing_map.get(raw_code.lstrip("0"))
+            or existing_map.get(raw_code.zfill(6))
+            or (name_map.get(raw_name.upper()) if not is_replace_mode else None)
+        )
+
+        if existing and not is_replace_mode:
             existing.name = raw_name
             existing.salt = cleaned_salt
             existing.manufacturer = raw_company
@@ -1692,9 +1758,22 @@ def upload_distributor_inventory(
             existing.selling_price = selling_price
             existing.stock_quantity = raw_stock
             existing.requires_prescription = requires_rx
-            if pack_shot_url and not existing.image_url:
+            if pack_shot_url:
                 existing.image_url = pack_shot_url
-            # Preserve publication status: do not accidentally hide already-live medicines!
+            if raw_uses:
+                existing.uses = raw_uses
+            if raw_interactions:
+                existing.interactions = raw_interactions
+            if raw_side_effects:
+                existing.side_effects = raw_side_effects
+            if raw_how_to_use:
+                existing.how_to_use = raw_how_to_use
+            if raw_storage:
+                existing.storage = raw_storage
+            if raw_hsn:
+                existing.hsn_code = raw_hsn
+            if publish_immediately:
+                existing.is_published = True
             updated_count += 1
         else:
             new_item = MedicineModel(
@@ -1710,7 +1789,13 @@ def upload_distributor_inventory(
                 min_stock=15,
                 requires_prescription=requires_rx,
                 image_url=pack_shot_url,
-                is_published=False, # New uploads start as draft for admin review
+                uses=raw_uses,
+                interactions=raw_interactions,
+                side_effects=raw_side_effects,
+                how_to_use=raw_how_to_use,
+                storage=raw_storage,
+                hsn_code=raw_hsn,
+                is_published=bool(publish_immediately),
                 is_visible=True,
             )
             db.add(new_item)
@@ -1719,13 +1804,18 @@ def upload_distributor_inventory(
 
     db.commit()
 
+    mode_label = "Fresh Start (Catalog Replaced)" if is_replace_mode else "Merged with Catalog"
+    action_note = f"Previous {replaced_count} medicines replaced. " if is_replace_mode else ""
     return {
         "success": True,
-        "message": f"Successfully organized {total_parsed} medicines ({created_count} new drafts, {updated_count} updated).",
+        "mode": "replace" if is_replace_mode else "merge",
+        "message": f"{mode_label}: {action_note}Processed {total_parsed} medicines ({created_count} imported, {updated_count} updated).",
         "stats": {
+            "mode": mode_clean,
             "totalParsed": total_parsed,
             "created": created_count,
             "updated": updated_count,
+            "replaced": replaced_count,
             "rxFlagged": rx_flagged_count,
             "categoryBreakdown": category_counts,
         },

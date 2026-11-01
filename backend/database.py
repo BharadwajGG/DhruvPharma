@@ -62,7 +62,13 @@ class MedicineModel(Base):
     stock_quantity = Column(Integer, default=0)
     min_stock = Column(Integer, default=15)
     requires_prescription = Column(Boolean, default=False)
-    image_url = Column(String(500), nullable=True, default="")
+    image_url = Column(String(1000), nullable=True, default="")
+    uses = Column(Text, nullable=True, default="")
+    side_effects = Column(Text, nullable=True, default="")
+    how_to_use = Column(Text, nullable=True, default="")
+    storage = Column(String(200), nullable=True, default="")
+    interactions = Column(Text, nullable=True, default="")
+    hsn_code = Column(String(50), nullable=True, default="")
     is_published = Column(Boolean, default=False, index=True)  # False = Staged/Draft, True = Live Store
     is_visible = Column(Boolean, default=True, index=True)  # Free will of store owner to showcase/hide in store
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -92,6 +98,15 @@ class MedicineModel(Base):
             "requiresPrescription": self.requires_prescription,
             "imageUrl": self.image_url or "",
             "image_url": self.image_url or "",
+            "uses": self.uses or "",
+            "sideEffects": self.side_effects or "",
+            "side_effects": self.side_effects or "",
+            "howToUse": self.how_to_use or "",
+            "how_to_use": self.how_to_use or "",
+            "storage": self.storage or "",
+            "interactions": self.interactions or "",
+            "hsnCode": self.hsn_code or "",
+            "hsn_code": self.hsn_code or "",
             "isPublished": self.is_published,
             "isVisible": self.is_visible if self.is_visible is not None else True,
             "is_visible": self.is_visible if self.is_visible is not None else True,
@@ -331,10 +346,28 @@ def init_db():
             cursor.execute("PRAGMA table_info(medicines)")
             med_cols = [col[1] for col in cursor.fetchall()]
             if med_cols and "image_url" not in med_cols:
-                cursor.execute("ALTER TABLE medicines ADD COLUMN image_url VARCHAR(500) DEFAULT ''")
+                cursor.execute("ALTER TABLE medicines ADD COLUMN image_url VARCHAR(1000) DEFAULT ''")
                 conn.connection.commit()
             if med_cols and "is_visible" not in med_cols:
                 cursor.execute("ALTER TABLE medicines ADD COLUMN is_visible BOOLEAN DEFAULT 1")
+                conn.connection.commit()
+            if med_cols and "uses" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN uses TEXT DEFAULT ''")
+                conn.connection.commit()
+            if med_cols and "side_effects" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN side_effects TEXT DEFAULT ''")
+                conn.connection.commit()
+            if med_cols and "how_to_use" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN how_to_use TEXT DEFAULT ''")
+                conn.connection.commit()
+            if med_cols and "storage" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN storage VARCHAR(200) DEFAULT ''")
+                conn.connection.commit()
+            if med_cols and "interactions" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN interactions TEXT DEFAULT ''")
+                conn.connection.commit()
+            if med_cols and "hsn_code" not in med_cols:
+                cursor.execute("ALTER TABLE medicines ADD COLUMN hsn_code VARCHAR(50) DEFAULT ''")
                 conn.connection.commit()
 
             cursor.execute("PRAGMA table_info(coupons)")

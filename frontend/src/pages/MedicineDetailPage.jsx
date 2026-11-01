@@ -352,68 +352,93 @@ export default function MedicineDetailPage() {
                 </div>
 
                 {/* ── Dynamic Clinical Guidelines ── */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    {/* Uses */}
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                        <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-blue-600" /> Therapeutic Uses
-                        </h3>
-                        <ul className="space-y-1.5">
-                            {(medicine.uses || ['Symptomatic relief']).map((use, idx) => (
-                                <li key={idx} className="flex items-start gap-2 text-xs text-gray-600">
-                                    <Check size={13} className="text-green-600 shrink-0 mt-0.5" />
-                                    <span>{use}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
+                {(() => {
+                    const parsedUses = Array.isArray(medicine.uses)
+                        ? medicine.uses
+                        : (typeof medicine.uses === 'string' && medicine.uses.trim()
+                            ? medicine.uses.split(/\n+/).map(s => s.trim().replace(/^[•\-\*]\s*/, '')).filter(Boolean)
+                            : ['Therapeutic health management and relief'])
 
-                    {/* Dosage & Directions */}
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                        <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-indigo-600" /> Dosage &amp; Directions
-                        </h3>
-                        <p className="text-xs text-gray-600 leading-relaxed mb-3">
-                            {medicine.dosage || 'Take as advised by your medical practitioner.'}
-                        </p>
-                        <div className="bg-gray-50 rounded-lg p-2.5 text-[11px] text-gray-500">
-                            <strong>Packaging:</strong> {medicine.packSize || 'Standard blister pack'}
+                    const parsedSideEffects = Array.isArray(medicine.sideEffects || medicine.side_effects)
+                        ? (medicine.sideEffects || medicine.side_effects)
+                        : (typeof (medicine.sideEffects || medicine.side_effects) === 'string' && (medicine.sideEffects || medicine.side_effects).trim()
+                            ? (medicine.sideEffects || medicine.side_effects).split(/[\n,]+/).map(s => s.trim().replace(/^[•\-\*]\s*/, '')).filter(Boolean)
+                            : ['No severe common side effects reported'])
+
+                    const dosageInstructions = medicine.how_to_use || medicine.howToUse || medicine.dosage || 'Take as advised by your healthcare professional.'
+                    const storageGuidance = medicine.storage || 'Store below 25°C in a dry place away from direct sunlight.'
+                    const interactionsText = medicine.interactions || ''
+
+                    return (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                            {/* Uses */}
+                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-blue-600" /> Therapeutic Uses
+                                </h3>
+                                <ul className="space-y-1.5">
+                                    {parsedUses.map((use, idx) => (
+                                        <li key={idx} className="flex items-start gap-2 text-xs text-gray-600">
+                                            <Check size={13} className="text-green-600 shrink-0 mt-0.5" />
+                                            <span>{use}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            {/* Dosage & Directions */}
+                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-600" /> Dosage &amp; Directions
+                                </h3>
+                                <p className="text-xs text-gray-600 leading-relaxed mb-3 whitespace-pre-line">
+                                    {dosageInstructions}
+                                </p>
+                                <div className="bg-gray-50 rounded-lg p-2.5 text-[11px] text-gray-500">
+                                    <strong>Packaging:</strong> {medicine.packSize || 'Standard distributor pack'}
+                                </div>
+                            </div>
+
+                            {/* Side Effects */}
+                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500" /> Potential Side Effects
+                                </h3>
+                                <ul className="space-y-1.5">
+                                    {parsedSideEffects.map((se, idx) => (
+                                        <li key={idx} className="flex items-start gap-2 text-xs text-gray-600">
+                                            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full mt-1.5 shrink-0" />
+                                            <span>{se}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            {/* Storage & Precautions */}
+                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                                <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-red-500" /> Storage &amp; Precautions
+                                </h3>
+                                <p className="text-xs text-gray-600 leading-relaxed mb-3">
+                                    {storageGuidance}
+                                </p>
+                                {interactionsText && (
+                                    <div className="bg-amber-50/80 border border-amber-200/80 rounded-lg p-2.5 text-[11px] text-amber-900 mb-2">
+                                        <strong>Interactions Warning:</strong> {interactionsText}
+                                    </div>
+                                )}
+                                <ul className="space-y-1.5">
+                                    {(medicine.warnings || ['Keep out of reach of children']).map((w, idx) => (
+                                        <li key={idx} className="flex items-start gap-2 text-xs text-red-600">
+                                            <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                                            <span>{w}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
                         </div>
-                    </div>
-
-                    {/* Side Effects */}
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                        <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-amber-500" /> Potential Side Effects
-                        </h3>
-                        <ul className="space-y-1.5">
-                            {(medicine.sideEffects || ['Well tolerated']).map((se, idx) => (
-                                <li key={idx} className="flex items-start gap-2 text-xs text-gray-600">
-                                    <span className="w-1.5 h-1.5 bg-amber-400 rounded-full mt-1.5 shrink-0" />
-                                    <span>{se}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-
-                    {/* Storage & Safety Warnings */}
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                        <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-red-500" /> Storage &amp; Precautions
-                        </h3>
-                        <p className="text-xs text-gray-600 leading-relaxed mb-3">
-                            {medicine.storage || 'Store in a cool, dry place below 25°C away from moisture and heat.'}
-                        </p>
-                        <ul className="space-y-1.5">
-                            {(medicine.warnings || ['Keep out of reach of children']).map((w, idx) => (
-                                <li key={idx} className="flex items-start gap-2 text-xs text-red-600">
-                                    <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                                    <span>{w}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
+                    )
+                })()}
 
                 {/* ── Customer Reviews & Ratings Section ── */}
                 <div className="mt-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">

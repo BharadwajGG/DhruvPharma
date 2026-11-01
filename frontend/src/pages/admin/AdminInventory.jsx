@@ -92,6 +92,12 @@ export default function AdminInventory() {
     const [editingNameId, setEditingNameId] = useState(null)
     const [editingNameValue, setEditingNameValue] = useState('')
 
+    // CSV Ingestion Strategy Modal State
+    const [pendingFile, setPendingFile] = useState(null)
+    const [showUploadModeModal, setShowUploadModeModal] = useState(false)
+    const [uploadMode, setUploadMode] = useState('merge') // 'merge' or 'replace'
+    const [uploadPublishImmediately, setUploadPublishImmediately] = useState(false)
+
     // Add Medicine Modal State
     const [showAddMedicineModal, setShowAddMedicineModal] = useState(false)
     const [isSubmittingMedicine, setIsSubmittingMedicine] = useState(false)
@@ -180,23 +186,34 @@ export default function AdminInventory() {
         fetchLive()
     }, [livePage, liveLimit, liveSearch, liveCategory])
 
-    // File Upload Handler
-    const handleFileUpload = async (file) => {
+    // Step 1: When user selects/drops CSV file, trigger Choice Strategy Modal
+    const handleFileSelected = (file) => {
         if (!file) return
         if (!file.name.toLowerCase().endsWith('.csv') && !file.name.toLowerCase().endsWith('.txt')) {
             alert('Please select a valid CSV file (.csv)')
             return
         }
+        setPendingFile(file)
+        setUploadMode('merge')
+        setUploadPublishImmediately(false)
+        setShowUploadModeModal(true)
+    }
 
+    // Step 2: Ingest CSV with chosen strategy (Merge vs Replace)
+    const handleExecuteUpload = async () => {
+        if (!pendingFile) return
         setIsUploading(true)
         setUploadSummary(null)
         setFeedbackMsg(null)
+        setShowUploadModeModal(false)
 
         const formData = new FormData()
-        formData.append('file', file)
+        formData.append('file', pendingFile)
+        formData.append('mode', uploadMode)
+        formData.append('publish_immediately', uploadPublishImmediately)
 
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 25000)
+        const timeoutId = setTimeout(() => controller.abort(), 60000)
 
         try {
             const res = await fetch('http://localhost:8000/api/inventory/upload', {
@@ -213,16 +230,27 @@ export default function AdminInventory() {
 
             setUploadSummary(data.stats)
             setFeedbackMsg({ type: 'success', text: data.message })
-            setActiveTab('staged')
-            setStagedPage(1)
+            if (uploadPublishImmediately || uploadMode === 'replace') {
+                setActiveTab('live')
+                setLivePage(1)
+            } else {
+                setActiveTab('staged')
+                setStagedPage(1)
+            }
             fetchStaged()
             fetchLive()
         } catch (err) {
             console.error('Upload error:', err)
-            setFeedbackMsg({ type: 'error', text: err.name === 'AbortError' ? 'Upload took too long. Please verify the CSV size.' : (err.message || 'Failed to upload and parse distributor CSV.') })
+            setFeedbackMsg({
+                type: 'error',
+                text: err.name === 'AbortError'
+                    ? 'Upload took too long. Please verify the CSV size.'
+                    : (err.message || 'Failed to upload and parse distributor CSV.')
+            })
         } finally {
             clearTimeout(timeoutId)
             setIsUploading(false)
+            setPendingFile(null)
             if (fileInputRef.current) fileInputRef.current.value = ''
         }
     }
@@ -567,7 +595,7 @@ export default function AdminInventory() {
                         e.preventDefault()
                         setIsDragging(false)
                         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                            handleFileUpload(e.dataTransfer.files[0])
+                            handleFileSelected(e.dataTransfer.files[0])
                         }
                     }}
                     className={`rounded-2xl border-2 border-dashed p-6 transition-all text-center relative ${
@@ -583,7 +611,7 @@ export default function AdminInventory() {
                         className="hidden"
                         onChange={(e) => {
                             if (e.target.files && e.target.files[0]) {
-                                handleFileUpload(e.target.files[0])
+                                handleFileSelected(e.target.files[0])
                             }
                         }}
                     />
@@ -1377,6 +1405,153 @@ export default function AdminInventory() {
                                     )}
                                 </button>
                             </form>
+                        </div>
+                    </div>
+                )}
+                {/* ── Modal: Choose CSV Ingestion Strategy (Merge vs Fresh Start) ── */}
+                {showUploadModeModal && pendingFile && (
+                    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                        <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95">
+                            {/* Modal Header */}
+                            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-900">Choose CSV Import Strategy</h3>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        Choose how you want to handle existing catalog data
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setShowUploadModeModal(false)
+                                        setPendingFile(null)
+                                    }}
+                                    className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Selected File Chip */}
+                            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                    <FileSpreadsheet size={18} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-slate-900 truncate">{pendingFile.name}</p>
+                                    <p className="text-[11px] text-slate-500">{(pendingFile.size / 1024).toFixed(1)} KB · CSV File</p>
+                                </div>
+                            </div>
+
+                            {/* Mode Options */}
+                            <div className="space-y-3">
+                                {/* Option 1: Merge */}
+                                <div
+                                    onClick={() => setUploadMode('merge')}
+                                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3.5 ${
+                                        uploadMode === 'merge'
+                                            ? 'border-emerald-600 bg-emerald-50/50 shadow-sm'
+                                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="uploadStrategy"
+                                        checked={uploadMode === 'merge'}
+                                        onChange={() => setUploadMode('merge')}
+                                        className="mt-1 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                    />
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold text-sm text-slate-900">Merge with Existing Catalog</span>
+                                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                Recommended
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                            Keeps your existing medicines safe. Updates prices, stock, and clinical data for matching medicine codes. New medicines will be added as review drafts.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Option 2: Fresh Start (Replace) */}
+                                <div
+                                    onClick={() => setUploadMode('replace')}
+                                    className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3.5 ${
+                                        uploadMode === 'replace'
+                                            ? 'border-amber-600 bg-amber-50/40 shadow-sm'
+                                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="uploadStrategy"
+                                        checked={uploadMode === 'replace'}
+                                        onChange={() => setUploadMode('replace')}
+                                        className="mt-1 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                    />
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold text-sm text-slate-900">Fresh Start (Replace Catalog)</span>
+                                            <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                New File
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                            Wipes out the existing medicine list and replaces it entirely with the medicines from this new CSV file. Perfect when uploading a brand new master stock sheet.
+                                        </p>
+                                        {uploadMode === 'replace' && (
+                                            <div className="mt-2.5 p-2.5 rounded-xl bg-amber-100/70 border border-amber-300/80 text-[11px] text-amber-900 flex items-start gap-2">
+                                                <AlertCircle size={14} className="shrink-0 text-amber-700 mt-0.5" />
+                                                <span>
+                                                    <strong>Safe Notice:</strong> Historical customer orders and invoices are preserved. Only the medicine catalog items will be replaced.
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Immediate Publish Checkbox */}
+                            <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer hover:bg-slate-100/60 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={uploadPublishImmediately}
+                                    onChange={(e) => setUploadPublishImmediately(e.target.checked)}
+                                    className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                                />
+                                <div className="text-xs">
+                                    <span className="font-bold text-slate-800">Publish directly to Live Customer Storefront</span>
+                                    <p className="text-[11px] text-slate-500">Skip the drafts queue and make medicines visible in the customer store immediately.</p>
+                                </div>
+                            </label>
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowUploadModeModal(false)
+                                        setPendingFile(null)
+                                    }}
+                                    className="px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleExecuteUpload}
+                                    className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer ${
+                                        uploadMode === 'replace'
+                                            ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20'
+                                            : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                                    }`}
+                                >
+                                    <Upload size={14} />
+                                    <span>
+                                        {uploadMode === 'replace' ? 'Replace & Ingest CSV' : 'Merge & Ingest CSV'}
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
