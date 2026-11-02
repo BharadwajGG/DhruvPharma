@@ -49,6 +49,7 @@ const ALL_STATUSES = [
     { key: 'confirmed',  label: 'Packed & Ready' },
     { key: 'dispatched', label: 'Out for Delivery' },
     { key: 'delivered',  label: 'Delivered' },
+    { key: 'cancelled',  label: 'Cancelled' },
 ]
 
 const DELIVERY_HUBS = [
@@ -813,10 +814,15 @@ export default function AdminOrders() {
         .reduce((sum, o) => sum + (o.amount || o.totalAmount || 0), 0)
 
     const pendingOrdersCount = orders.filter((o) => o.status === 'pending').length
+    const confirmedOrdersCount = orders.filter((o) => o.status === 'confirmed').length
+    const dispatchedOrdersCount = orders.filter((o) => o.status === 'dispatched').length
+    const deliveredOrdersCount = orders.filter((o) => o.status === 'delivered').length
+    const cancelledOrdersCount = orders.filter((o) => o.status === 'cancelled').length
+    const needsActionCount = pendingOrdersCount + confirmedOrdersCount
 
     return (
         <AdminLayout>
-            <div className="max-w-6xl mx-auto space-y-6">
+            <div className="max-w-7xl mx-auto space-y-6">
 
                 {/* ── Real-Time Notification Toast ── */}
                 {liveNotification && (
@@ -834,7 +840,7 @@ export default function AdminOrders() {
                         </div>
                         <button
                             onClick={() => setLiveNotification(null)}
-                            className="text-white/80 hover:text-white p-1"
+                            className="text-white/80 hover:text-white p-1 cursor-pointer"
                         >
                             <X size={18} />
                         </button>
@@ -855,7 +861,7 @@ export default function AdminOrders() {
                         </div>
                         <button
                             onClick={() => setStockAlertMessage('')}
-                            className="text-slate-400 hover:text-white p-1"
+                            className="text-slate-400 hover:text-white p-1 cursor-pointer"
                         >
                             <X size={18} />
                         </button>
@@ -866,14 +872,14 @@ export default function AdminOrders() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-2.5">
-                            <h1 className="text-xl font-bold text-slate-900">Customer Orders</h1>
-                            <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                Store Connected
+                            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Customer Orders</h1>
+                            <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 text-[11px] font-bold px-3 py-1 rounded-full border border-emerald-200 shadow-2xs">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                Live Store Orders Feed
                             </span>
                         </div>
-                        <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
-                            {orders.length} total orders · {pendingOrdersCount} waiting for dispatch · ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })} money collected
+                        <p className="text-slate-500 text-xs sm:text-sm mt-1">
+                            Track live patient orders, dispatch shipments across Nandurbar &amp; Maharashtra hubs, print GST invoices, and coordinate deliveries.
                         </p>
                     </div>
 
@@ -882,12 +888,12 @@ export default function AdminOrders() {
                         <button
                             type="button"
                             onClick={() => setCallbacksModalOpen(true)}
-                            className="relative bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="relative bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                         >
                             <PhoneCall size={14} className="text-emerald-700" />
                             <span>Customer Callbacks</span>
                             {pendingCallbacksCount > 0 && (
-                                <span className="bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full animate-pulse">
+                                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse shadow-xs">
                                     {pendingCallbacksCount}
                                 </span>
                             )}
@@ -897,7 +903,7 @@ export default function AdminOrders() {
                         <button
                             type="button"
                             onClick={() => handleOpenPhoneOrder()}
-                            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                             title="Add medicines and create customer order"
                         >
                             <Plus size={15} />
@@ -908,7 +914,7 @@ export default function AdminOrders() {
                         <button
                             type="button"
                             onClick={handleExportOrdersCSV}
-                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                             title="Export all orders from chart to CSV spreadsheet"
                         >
                             <Download size={14} className="text-blue-600" />
@@ -919,7 +925,7 @@ export default function AdminOrders() {
                         <button
                             type="button"
                             onClick={() => setImportCsvModalOpen(true)}
-                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                             title="Import customer orders from CSV file"
                         >
                             <Upload size={14} className="text-emerald-700" />
@@ -929,14 +935,14 @@ export default function AdminOrders() {
                         {/* Audio Toggle */}
                         <button
                             onClick={() => setSoundEnabled(!soundEnabled)}
-                            className={`p-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                            className={`px-3 py-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
                                 soundEnabled
                                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                                     : 'bg-white border-slate-200 text-slate-400'
                             }`}
                             title={soundEnabled ? 'Order notification chime enabled' : 'Order notification chime muted'}
                         >
-                            {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                            {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
                             <span className="hidden sm:inline">{soundEnabled ? 'Chime ON' : 'Muted'}</span>
                         </button>
 
@@ -946,28 +952,136 @@ export default function AdminOrders() {
                                 fetchOrders()
                                 fetchCallbacks()
                             }}
-                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                         >
-                            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
-                            Refresh List
+                            <RefreshCw size={13} className={isLoading ? 'animate-spin text-emerald-600' : 'text-slate-500'} />
+                            <span>Refresh</span>
                         </button>
                     </div>
                 </div>
 
+                {/* ── KPI Summary Cards ── */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Card 1: Total Orders Placed */}
+                    <div 
+                        onClick={() => setFilter('all')}
+                        className={`bg-white rounded-2xl border p-4.5 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer ${
+                            filter === 'all' ? 'border-blue-500 ring-2 ring-blue-100 shadow-sm' : 'border-slate-200/90 hover:border-blue-300'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0 border border-blue-100">
+                            <ShoppingBag size={22} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Orders</p>
+                            <p className="text-2xl font-black text-slate-900 mt-0.5">
+                                {orders.length.toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                {pendingCallbacksCount > 0 ? `${pendingCallbacksCount} callbacks pending` : 'All channels active'}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Card 2: Needs Action (Dispatch Queue) */}
+                    <div 
+                        onClick={() => setFilter('pending')}
+                        className={`bg-white rounded-2xl border p-4.5 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer ${
+                            filter === 'pending' || filter === 'confirmed' ? 'border-amber-500 ring-2 ring-amber-100 shadow-sm' : 'border-slate-200/90 hover:border-amber-300'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0 border border-amber-100">
+                            <Clock size={22} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Needs Action</p>
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.2 rounded-full">Packing</span>
+                            </div>
+                            <p className="text-2xl font-black text-amber-700 mt-0.5">
+                                {needsActionCount}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                {pendingOrdersCount} new · {confirmedOrdersCount} packed &amp; ready
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Card 3: Out for Delivery */}
+                    <div 
+                        onClick={() => setFilter('dispatched')}
+                        className={`bg-white rounded-2xl border p-4.5 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer ${
+                            filter === 'dispatched' ? 'border-purple-500 ring-2 ring-purple-100 shadow-sm' : 'border-slate-200/90 hover:border-purple-300'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0 border border-purple-100">
+                            <Truck size={22} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Out for Delivery</p>
+                                <span className="text-[10px] font-bold bg-purple-100 text-purple-900 px-2 py-0.2 rounded-full">In Transit</span>
+                            </div>
+                            <p className="text-2xl font-black text-purple-700 mt-0.5">
+                                {dispatchedOrdersCount}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                With delivery rider / hub
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Card 4: Delivered Revenue */}
+                    <div 
+                        onClick={() => setFilter('delivered')}
+                        className={`bg-white rounded-2xl border p-4.5 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer ${
+                            filter === 'delivered' ? 'border-emerald-500 ring-2 ring-emerald-100 shadow-sm' : 'border-slate-200/90 hover:border-emerald-300'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-100">
+                            <CheckCircle size={22} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Money Collected</p>
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-900 px-2 py-0.2 rounded-full">Delivered</span>
+                            </div>
+                            <p className="text-2xl font-black text-emerald-700 mt-0.5">
+                                ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                {deliveredOrdersCount} orders fulfilled
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 {/* ── Search + Filter ── */}
-                <div className="space-y-2.5">
+                <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 space-y-3">
                     <div className="flex flex-col sm:flex-row gap-3">
-                        <div className="flex-1 flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100 transition-all shadow-2xs">
-                            <Search size={16} className="ml-4 text-slate-400 shrink-0" />
+                        <div className="relative flex-1">
+                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
                                 placeholder="Search by customer name, phone number, order ID, town, or PIN code..."
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                className="flex-1 px-3 py-2.5 text-xs outline-none bg-transparent"
+                                className="w-full pl-9 pr-9 py-2.5 border border-slate-200 rounded-xl text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all text-slate-800"
                             />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearch('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    title="Clear search"
+                                >
+                                    <X size={15} />
+                                </button>
+                            )}
                         </div>
-                        <div className="flex gap-2 overflow-x-auto pb-1">
+
+                        {/* Status Filter Chips */}
+                        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                             {ALL_STATUSES.map((item) => {
                                 const count = item.key === 'all'
                                     ? orders.length
@@ -976,7 +1090,7 @@ export default function AdminOrders() {
                                     <button
                                         key={item.key}
                                         onClick={() => setFilter(item.key)}
-                                        className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                        className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
                                             filter === item.key
                                                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                                                 : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
@@ -995,7 +1109,7 @@ export default function AdminOrders() {
                     </div>
 
                     {/* ── Delivery Hub Selector Bar (Real-Time Serviceable Areas) ── */}
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs pt-1">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs pt-1 no-scrollbar">
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
                             <MapPin size={12} className="text-emerald-700" />
                             Town / Hub:
@@ -1004,9 +1118,9 @@ export default function AdminOrders() {
                             <button
                                 key={hub.pincode}
                                 onClick={() => setAreaFilter(hub.pincode)}
-                                className={`shrink-0 px-2.5 py-1 rounded-lg font-bold transition-all text-xs border cursor-pointer ${
+                                className={`shrink-0 px-2.5 py-1 rounded-xl font-bold transition-all text-xs border cursor-pointer ${
                                     areaFilter === hub.pincode
-                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs font-black'
                                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                                 }`}
                             >
@@ -1067,51 +1181,58 @@ export default function AdminOrders() {
                 )}
 
                 {/* ── Orders Table ── */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-xs overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left">
+                        <table className="w-full text-xs text-left border-collapse">
                             <thead>
-                                <tr className="bg-gray-50 border-b border-gray-100 text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-                                    <th className="py-3 px-3 text-center w-10">
+                                <tr className="bg-slate-50/90 border-b border-slate-200 text-[10px] text-slate-600 font-bold uppercase tracking-wider">
+                                    <th className="py-3.5 px-3 text-center w-10">
                                         <input
                                             type="checkbox"
                                             checked={displayed.length > 0 && displayed.every((o) => selectedOrderIds.includes(o.id || o.orderId))}
                                             onChange={toggleSelectAll}
-                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                                             title="Select all displayed orders"
                                         />
                                     </th>
-                                    <th className="py-3 px-4">Order ID</th>
-                                    <th className="py-3 px-4">Patient / Customer</th>
-                                    <th className="py-3 px-4">Expected Delivery Window</th>
-                                    <th className="py-3 px-4 text-right">Amount</th>
-                                    <th className="py-3 px-4 text-center">Status</th>
-                                    <th className="py-3 px-4 text-center">Actions</th>
+                                    <th className="py-3.5 px-4 min-w-[120px]">Order ID</th>
+                                    <th className="py-3.5 px-4 min-w-[210px]">Patient / Customer</th>
+                                    <th className="py-3.5 px-4 min-w-[220px]">Ordered Medicines</th>
+                                    <th className="py-3.5 px-4 min-w-[180px]">Delivery Window</th>
+                                    <th className="py-3.5 px-4 text-right min-w-[110px]">Amount</th>
+                                    <th className="py-3.5 px-4 text-center min-w-[140px]">Status</th>
+                                    <th className="py-3.5 px-4 text-center min-w-[180px]">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100">
+                            <tbody className="divide-y divide-slate-100">
                                 {displayed.map((o) => {
                                     const cfg = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending
                                     const Icon = cfg.icon
                                     const isEditingThis = editingDeliveryTimeId === (o.id || o.orderId)
                                     const isRowSelected = selectedOrderIds.includes(o.id || o.orderId)
+                                    const cleanPhone = (o.phone || '').replace(/\D/g, '')
 
                                     return (
-                                        <tr key={o.id || o.orderId} className={`hover:bg-blue-50/20 transition-colors ${isRowSelected ? 'bg-blue-50/40' : ''}`}>
+                                        <tr key={o.id || o.orderId} className={`hover:bg-slate-50/80 transition-colors ${isRowSelected ? 'bg-emerald-50/30' : ''}`}>
                                             <td className="py-3.5 px-3 text-center">
                                                 <input
                                                     type="checkbox"
                                                     checked={isRowSelected}
                                                     onChange={() => toggleSelectRow(o.id || o.orderId)}
-                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                                                 />
                                             </td>
-                                            <td className="py-3.5 px-4 font-mono font-bold text-emerald-800 whitespace-nowrap">
-                                                {o.id || o.orderId}
+                                            <td className="py-3.5 px-4 whitespace-nowrap">
+                                                <span className="font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[11px]">
+                                                    {o.id || o.orderId}
+                                                </span>
+                                                <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                                                    {o.date || o.createdAt || 'Recent'}
+                                                </p>
                                             </td>
                                             <td className="py-3.5 px-4">
-                                                <p className="font-bold text-slate-900">{o.patient || o.customerName}</p>
-                                                <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                                                <p className="font-bold text-slate-900 text-xs">{o.patient || o.customerName}</p>
+                                                <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 flex-wrap">
                                                     {o.phone ? (
                                                         <a
                                                             href={`tel:${o.phone}`}
@@ -1125,11 +1246,32 @@ export default function AdminOrders() {
                                                         <span>No phone</span>
                                                     )}
                                                     <span>·</span>
-                                                    <span className="inline-flex items-center gap-0.5 text-slate-700 font-semibold bg-slate-100 px-1.5 py-0.2 rounded">
+                                                    <span className="inline-flex items-center gap-0.5 text-slate-700 font-semibold bg-slate-100 px-1.5 py-0.2 rounded text-[10px]">
                                                         <MapPin size={10} className="text-emerald-700" />
                                                         {o.district || 'Nandurbar'} {o.pincode ? `(${o.pincode})` : ''}
                                                     </span>
                                                 </div>
+                                            </td>
+
+                                            {/* Ordered Medicines Summary */}
+                                            <td className="py-3.5 px-4">
+                                                {Array.isArray(o.items) && o.items.length > 0 ? (
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.2 rounded-md border border-emerald-200">
+                                                                {o.items.length} {o.items.length === 1 ? 'Medicine' : 'Medicines'}
+                                                            </span>
+                                                        </div>
+                                                        <p
+                                                            className="text-[11px] font-semibold text-slate-800 line-clamp-1 truncate max-w-[240px]"
+                                                            title={o.items.map((i) => `${i.name || 'Medicine'} (x${i.qty || i.quantity || 1})`).join(', ')}
+                                                        >
+                                                            {o.items.map((i) => `${i.name || 'Medicine'} (x${i.qty || i.quantity || 1})`).join(', ')}
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400 italic text-[11px]">Direct Prescription / Order</span>
+                                                )}
                                             </td>
 
                                             {/* Expected Delivery Date/Time Control */}
@@ -1141,7 +1283,7 @@ export default function AdminOrders() {
                                                             value={tempDeliveryTime}
                                                             onChange={(e) => setTempDeliveryTime(e.target.value)}
                                                             placeholder="e.g. Expected in 3–4 Days"
-                                                            className="px-2 py-1 border border-emerald-400 rounded-lg text-xs outline-none bg-white w-48 font-medium"
+                                                            className="px-2 py-1 border border-emerald-400 rounded-lg text-xs outline-none bg-white w-44 font-medium shadow-xs"
                                                             autoFocus
                                                         />
                                                         <button
@@ -1165,11 +1307,11 @@ export default function AdminOrders() {
                                                              setEditingDeliveryTimeId(o.id || o.orderId)
                                                              setTempDeliveryTime(o.expectedDelivery || 'Expected in 3–4 Days')
                                                         }}
-                                                        className="group cursor-pointer flex items-center gap-1.5 text-slate-700 hover:text-emerald-700"
+                                                        className="group cursor-pointer flex items-center gap-1.5 text-slate-700 hover:text-emerald-700 transition-colors"
                                                         title="Click to edit expected delivery time"
                                                     >
                                                         <Truck size={13} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
-                                                        <span className="font-semibold underline decoration-dotted decoration-slate-300">
+                                                        <span className="font-semibold underline decoration-dotted decoration-slate-300 text-xs">
                                                             {o.expectedDelivery || 'Expected in 3–4 Days'}
                                                         </span>
                                                     </div>
@@ -1177,17 +1319,32 @@ export default function AdminOrders() {
                                             </td>
 
                                             <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                                                <p className="font-bold text-slate-900">₹{o.amount || o.totalAmount}</p>
-                                                <p className="text-[10px] text-slate-500 font-medium uppercase">{o.paymentMethod || 'COD'}</p>
-                                            </td>
-
-                                            <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${cfg.style}`}>
-                                                    <Icon size={12} /> {cfg.label}
+                                                <p className="font-black text-slate-900 text-xs">₹{Number(o.amount || o.totalAmount || 0).toLocaleString('en-IN')}</p>
+                                                <span className="inline-block mt-0.5 text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                                    {o.paymentMethod || 'COD'}
                                                 </span>
                                             </td>
 
-                                            {/* Action Buttons: View, Bill & Delete */}
+                                            {/* Quick Interactive Status Dropdown */}
+                                            <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                                                <select
+                                                    value={o.status}
+                                                    disabled={isUpdatingStatus}
+                                                    onChange={(e) => handleStatusTransition(o.id || o.orderId, e.target.value)}
+                                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-xl border outline-none cursor-pointer transition-all shadow-2xs ${
+                                                        cfg.style
+                                                    }`}
+                                                    title="Click to quickly change order status"
+                                                >
+                                                    <option value="pending" className="bg-white text-amber-900 font-semibold">New Order</option>
+                                                    <option value="confirmed" className="bg-white text-blue-900 font-semibold">Packed &amp; Ready</option>
+                                                    <option value="dispatched" className="bg-white text-purple-900 font-semibold">Out for Delivery</option>
+                                                    <option value="delivered" className="bg-white text-emerald-900 font-semibold">Delivered</option>
+                                                    <option value="cancelled" className="bg-white text-rose-900 font-semibold">Cancelled</option>
+                                                </select>
+                                            </td>
+
+                                            {/* Action Buttons: View, Bill, WhatsApp & Delete */}
                                             <td className="py-3.5 px-4 text-center whitespace-nowrap">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                     <button
@@ -1200,10 +1357,21 @@ export default function AdminOrders() {
                                                     <button
                                                         onClick={() => setSelectedInvoiceOrder(o)}
                                                         className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                                                        title="Print GST Bill"
+                                                        title="Print GST Tax Bill"
                                                     >
-                                                        <Printer size={12} /> Print Bill
+                                                        <Printer size={12} /> Bill
                                                     </button>
+                                                    {cleanPhone && (
+                                                        <a
+                                                            href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(`Hello ${o.patient || o.customerName || 'Customer'}, regarding your Dhruv Pharma Order #${o.id || o.orderId}...`)}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg border border-transparent hover:border-emerald-200 transition-colors cursor-pointer"
+                                                            title="Chat with customer on WhatsApp"
+                                                        >
+                                                            <MessageSquare size={13} />
+                                                        </a>
+                                                    )}
                                                     {o.status !== 'cancelled' && (
                                                         <button
                                                             onClick={() => {
@@ -1231,9 +1399,12 @@ export default function AdminOrders() {
 
                                 {displayed.length === 0 && (
                                     <tr>
-                                        <td colSpan={7} className="text-center py-12 text-gray-400">
-                                            <Package size={36} className="mx-auto mb-2 text-gray-200" />
-                                            <p className="font-semibold text-gray-600 text-sm">No orders found.</p>
+                                        <td colSpan={8} className="text-center py-12 text-slate-400">
+                                            <Package size={36} className="mx-auto mb-2 text-slate-300" />
+                                            <p className="font-bold text-slate-600 text-sm">No customer orders found.</p>
+                                            <p className="text-xs text-slate-400 mt-0.5">
+                                                {search ? 'Try adjusting your search query or town filter.' : 'When patients place orders online or over phone, they will appear here.'}
+                                            </p>
                                         </td>
                                     </tr>
                                 )}
@@ -1397,26 +1568,45 @@ export default function AdminOrders() {
                                 </div>
 
                                 {/* Customer Info Grid */}
-                                <div className="grid grid-cols-2 gap-4 bg-gray-50 border border-gray-100 rounded-xl p-4">
+                                <div className="grid grid-cols-2 gap-4 bg-slate-50 border border-slate-200/80 rounded-2xl p-4.5">
                                     <div>
-                                        <p className="text-gray-400 font-semibold mb-0.5">Customer Phone</p>
-                                        <p className="font-bold text-gray-900">{selected.phone}</p>
+                                        <p className="text-slate-400 font-semibold mb-1 text-[11px] uppercase tracking-wider">Customer Phone &amp; Chat</p>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <a href={`tel:${selected.phone}`} className="font-bold text-slate-900 hover:text-emerald-700 hover:underline inline-flex items-center gap-1">
+                                                <Phone size={12} className="text-emerald-600" />
+                                                <span>{selected.phone}</span>
+                                            </a>
+                                            {selected.phone && (
+                                                <a
+                                                    href={`https://wa.me/91${(selected.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(`Hello ${selected.patient || selected.customerName || 'Customer'}, regarding your Dhruv Pharma Order #${selected.id || selected.orderId}...`)}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="bg-emerald-100/80 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-colors"
+                                                    title="Chat with customer on WhatsApp"
+                                                >
+                                                    <MessageSquare size={11} /> WhatsApp
+                                                </a>
+                                            )}
+                                        </div>
                                     </div>
                                     <div>
-                                        <p className="text-gray-400 font-semibold mb-0.5">District / Region</p>
-                                        <p className="font-bold text-gray-900">{selected.district} {selected.pincode}</p>
+                                        <p className="text-slate-400 font-semibold mb-1 text-[11px] uppercase tracking-wider">District / Hub Pincode</p>
+                                        <p className="font-bold text-slate-900 inline-flex items-center gap-1">
+                                            <MapPin size={12} className="text-emerald-700" />
+                                            <span>{selected.district} {selected.pincode ? `(${selected.pincode})` : ''}</span>
+                                        </p>
                                     </div>
                                     <div className="col-span-2">
-                                        <p className="text-gray-400 font-semibold mb-0.5">Full Delivery Address</p>
-                                        <p className="font-medium text-gray-800">{selected.address}</p>
+                                        <p className="text-slate-400 font-semibold mb-1 text-[11px] uppercase tracking-wider">Full Delivery Address</p>
+                                        <p className="font-medium text-slate-800 bg-white p-2.5 rounded-xl border border-slate-200/80 text-xs leading-relaxed">{selected.address}</p>
                                     </div>
                                     <div>
-                                        <p className="text-gray-400 font-semibold mb-0.5">Payment Method</p>
-                                        <p className="font-bold text-gray-900">{selected.paymentMethod} ({selected.paymentStatus || 'pending'})</p>
+                                        <p className="text-slate-400 font-semibold mb-1 text-[11px] uppercase tracking-wider">Payment Method</p>
+                                        <p className="font-bold text-slate-900 uppercase">{selected.paymentMethod} ({selected.paymentStatus || 'pending'})</p>
                                     </div>
                                     <div>
-                                        <p className="text-gray-400 font-semibold mb-0.5">Delivery Agent</p>
-                                        <p className="font-bold text-gray-900">{selected.agent || selected.deliveryAgent}</p>
+                                        <p className="text-slate-400 font-semibold mb-1 text-[11px] uppercase tracking-wider">Delivery Agent</p>
+                                        <p className="font-bold text-slate-900">{selected.agent || selected.deliveryAgent || 'Assigned to Local Hub Rider'}</p>
                                     </div>
                                 </div>
 
