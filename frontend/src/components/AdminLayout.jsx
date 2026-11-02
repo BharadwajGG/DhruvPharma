@@ -12,6 +12,7 @@ import {
     ExternalLink,
     Store,
     ShieldCheck,
+    BadgePercent,
 } from 'lucide-react'
 
 const NAV = [
@@ -19,6 +20,7 @@ const NAV = [
     { icon: ShoppingBag,     label: 'Customer Orders',       path: '/admin/orders' },
     { icon: FileText,        label: 'Customer Prescriptions', path: '/admin/prescriptions' },
     { icon: Package,         label: 'Medicine Inventory',    path: '/admin/inventory' },
+    { icon: BadgePercent,    label: 'Pricing & Margins',     path: '/admin/pricing' },
 ]
 
 export default function AdminLayout({ children }) {

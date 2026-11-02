@@ -34,6 +34,7 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
 const AdminPrescriptions = lazy(() => import('./pages/admin/AdminPrescriptions'))
 const AdminOrders = lazy(() => import('./pages/admin/AdminOrders'))
 const AdminInventory = lazy(() => import('./pages/admin/AdminInventory'))
+const AdminPricing = lazy(() => import('./pages/admin/AdminPricing'))
 
 const PageLoader = () => (
     <div className="min-h-[50vh] flex items-center justify-center">
@@ -110,6 +111,14 @@ function App() {
                                     element={
                                         <AdminRoute>
                                             <AdminInventory />
+                                        </AdminRoute>
+                                    }
+                                />
+                                <Route
+                                    path="/admin/pricing"
+                                    element={
+                                        <AdminRoute>
+                                            <AdminPricing />
                                         </AdminRoute>
                                     }
                                 />

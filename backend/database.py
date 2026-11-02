@@ -324,6 +324,32 @@ class UserProfileModel(Base):
         }
 
 
+class PricingRuleModel(Base):
+    __tablename__ = "pricing_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    category = Column(String(100), unique=True, index=True, nullable=False)
+    discount_pct = Column(Float, default=0.0)  # Discount % off MRP
+    min_margin_pct = Column(Float, default=5.0)  # Profit margin floor buffer over cost price
+    enabled = Column(Boolean, default=True)
+    notes = Column(String(250), nullable=True, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "category": self.category,
+            "discountPct": self.discount_pct,
+            "discount_pct": self.discount_pct,
+            "minMarginPct": self.min_margin_pct,
+            "min_margin_pct": self.min_margin_pct,
+            "enabled": self.enabled,
+            "notes": self.notes or "",
+            "updatedAt": self.updated_at.strftime("%d %b %Y, %I:%M %p") if self.updated_at else "",
+        }
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
@@ -699,6 +725,24 @@ def init_db():
             ]
             for r in sample_reviews:
                 db.add(ReviewModel(**r))
+            db.commit()
+
+        # 6. Seed category pricing & profit margin protection rules if empty
+        if db.query(PricingRuleModel).count() == 0:
+            default_rules = [
+                {"category": "DEFAULT", "discount_pct": 0.0, "min_margin_pct": 5.0, "notes": "Storewide fallback rule for uncategorized medicines"},
+                {"category": "Antibiotics & Infections", "discount_pct": 0.0, "min_margin_pct": 5.0, "notes": "Protects tight DPCO/ethical 16% margins"},
+                {"category": "Pain Relief & Fever", "discount_pct": 0.0, "min_margin_pct": 5.0, "notes": "High turnover essential medicines sold at MRP"},
+                {"category": "Diabetes Care", "discount_pct": 5.0, "min_margin_pct": 5.0, "notes": "Competitive chronic patient retention"},
+                {"category": "Heart & Blood Pressure", "discount_pct": 5.0, "min_margin_pct": 5.0, "notes": "Competitive chronic patient retention"},
+                {"category": "Acidity & Digestion", "discount_pct": 5.0, "min_margin_pct": 5.0, "notes": "Everyday digestive care"},
+                {"category": "Cold, Cough & Allergy", "discount_pct": 5.0, "min_margin_pct": 5.0, "notes": "Seasonal respiratory care"},
+                {"category": "Vitamins & Supplements", "discount_pct": 10.0, "min_margin_pct": 10.0, "notes": "Higher wholesale margins allow safe customer savings"},
+                {"category": "Skin Care & Antiseptic", "discount_pct": 8.0, "min_margin_pct": 8.0, "notes": "Topicals and dermatological essentials"},
+                {"category": "General Healthcare", "discount_pct": 0.0, "min_margin_pct": 5.0, "notes": "General healthcare items sold at MRP"},
+            ]
+            for rule in default_rules:
+                db.add(PricingRuleModel(**rule))
             db.commit()
 
     finally:

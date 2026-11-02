@@ -455,10 +455,8 @@ export default function AdminInventory() {
         const costNum = parseFloat(addMedicineForm.costPrice) || 0
         let sellNum = parseFloat(addMedicineForm.sellingPrice) || 0
 
-        // If selling price not entered, calculate default discount price (12% off MRP)
-        if (sellNum <= 0 && mrpNum > 0) {
-            sellNum = Math.round(mrpNum * 0.88 * 100) / 100
-        }
+        // If selling price not entered, pass undefined so backend calculates based on active Category Pricing Rules
+        const finalSellingPrice = sellNum > 0 ? sellNum : undefined
 
         setIsSubmittingMedicine(true)
         try {
@@ -470,7 +468,7 @@ export default function AdminInventory() {
                 category: addMedicineForm.category,
                 mrp: mrpNum,
                 costPrice: costNum,
-                sellingPrice: sellNum,
+                sellingPrice: finalSellingPrice,
                 stockQuantity: parseInt(addMedicineForm.stockQuantity) || 0,
                 minStock: parseInt(addMedicineForm.minStock) || 15,
                 requiresPrescription: Boolean(addMedicineForm.requiresPrescription),
@@ -1328,7 +1326,7 @@ export default function AdminInventory() {
                                             <input
                                                 type="number"
                                                 step="0.01"
-                                                placeholder="Auto (12% OFF)"
+                                                placeholder="Auto (Category Rule)"
                                                 value={addMedicineForm.sellingPrice}
                                                 onChange={(e) => setAddMedicineForm({ ...addMedicineForm, sellingPrice: e.target.value })}
                                                 className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 font-bold text-emerald-700 text-xs"
@@ -1350,7 +1348,7 @@ export default function AdminInventory() {
                                         </div>
                                     </div>
                                     <p className="text-[10px] text-slate-400">
-                                        💡 If selling price is left blank, it will be automatically calculated with Dhruv Pharma's 12% customer discount.
+                                        💡 If selling price is left blank, it will be automatically calculated according to your active Pricing &amp; Margins rules.
                                     </p>
                                 </div>
 

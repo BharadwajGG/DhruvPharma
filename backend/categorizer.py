@@ -361,10 +361,15 @@ def categorize_medicine(name: str, salt: str = "") -> Tuple[str, bool]:
     return matched_category, requires_rx
 
 
-def calculate_selling_price(mrp: float, cost_price: float = 0.0, discount_pct: float = 12.0) -> float:
+def calculate_selling_price(
+    mrp: float,
+    cost_price: float = 0.0,
+    discount_pct: float = 0.0,
+    min_margin_pct: float = 5.0,
+) -> float:
     """
-    Calculate customer selling price with a standard store discount (e.g. 12% off MRP),
-    guaranteeing it never falls below wholesale cost price.
+    Calculate customer selling price with category-specific store discount,
+    guaranteeing it never falls below wholesale cost price + safe profit buffer.
     """
     try:
         mrp_val = float(mrp)
@@ -379,11 +384,14 @@ def calculate_selling_price(mrp: float, cost_price: float = 0.0, discount_pct: f
     if mrp_val <= 0:
         return round(cost_val, 2)
 
+    # 1. Apply category discount
     discounted = mrp_val * (1.0 - (discount_pct / 100.0))
 
-    # Protect pharmacy margin: never sell below cost price
-    final_price = max(discounted, cost_val)
-    # Never exceed MRP
+    # 2. Protect pharmacy margin: enforce wholesale cost floor with profit buffer
+    cost_floor = cost_val * (1.0 + (min_margin_pct / 100.0)) if cost_val > 0 else 0.0
+    final_price = max(discounted, cost_floor, cost_val)
+
+    # 3. Statutory safeguard: never exceed official MRP
     final_price = min(final_price, mrp_val)
 
     return round(final_price, 2)

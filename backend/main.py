@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 
-from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel, CallbackRequestModel, CouponModel, ReviewModel, UserProfileModel, SessionLocal
+from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel, CallbackRequestModel, CouponModel, ReviewModel, UserProfileModel, SessionLocal, PricingRuleModel
 from categorizer import categorize_medicine, calculate_selling_price, clean_text
 from notifications import (
     generate_clinical_info,
@@ -1639,6 +1639,7 @@ def upload_distributor_inventory(
     salt_idx = find_column_index(headers, ["salt", "composition", "formulation", "generic", "genericname"])
     mrp_idx = find_column_index(headers, ["mrp", "m.r.p.", "m.r.p", "maximumretailprice"])
     rate_idx = find_column_index(headers, ["rate", "cost", "costprice", "purchaserate", "ptr", "wrate"])
+    selling_price_idx = find_column_index(headers, ["sellingprice", "selling_price", "saleprice", "salerate", "custprice", "netrate"])
     stock_idx = find_column_index(headers, ["stock", "qty", "quantity", "balance", "curstock", "closingstock"])
     image_idx = find_column_index(headers, [
         "images", "image", "imageurl", "image_url", "image_link", "imagelink",
@@ -1652,6 +1653,13 @@ def upload_distributor_inventory(
     how_to_use_idx = find_column_index(headers, ["howtouse", "how_to_use", "dosage", "directions", "instructions"])
     storage_idx = find_column_index(headers, ["storage", "storageconditions", "storage_conditions"])
     hsn_idx = find_column_index(headers, ["hsncode", "hsn_code", "hsn", "hsnname"])
+
+    # Load active Category Pricing & Profit Margin Rules
+    pricing_rules_db = db.query(PricingRuleModel).all()
+    rules_map = {r.category: r for r in pricing_rules_db}
+    default_rule = rules_map.get("DEFAULT")
+    default_discount = default_rule.discount_pct if default_rule else 0.0
+    default_margin = default_rule.min_margin_pct if default_rule else 5.0
 
     if name_idx is None:
         raise HTTPException(
@@ -1752,7 +1760,26 @@ def upload_distributor_inventory(
         if requires_rx:
             rx_flagged_count += 1
 
-        selling_price = calculate_selling_price(mrp=raw_mrp, cost_price=raw_rate, discount_pct=12.0)
+        # Selling price resolution: respect explicit CSV selling price if present, else apply category pricing rule
+        explicit_selling_price = 0.0
+        if selling_price_idx is not None and selling_price_idx < len(row):
+            try:
+                explicit_selling_price = float(re.sub(r"[^\d.]", "", row[selling_price_idx]) or 0)
+            except ValueError:
+                explicit_selling_price = 0.0
+
+        if explicit_selling_price > 0:
+            selling_price = round(explicit_selling_price, 2)
+        else:
+            cat_rule = rules_map.get(category, default_rule)
+            disc = cat_rule.discount_pct if cat_rule and cat_rule.enabled else default_discount
+            margin = cat_rule.min_margin_pct if cat_rule and cat_rule.enabled else default_margin
+            selling_price = calculate_selling_price(
+                mrp=raw_mrp,
+                cost_price=raw_rate,
+                discount_pct=disc,
+                min_margin_pct=margin,
+            )
 
         # Image URL sanitization & validation (handles CDN links with params, webp, jpg, png, and repairs stray '?')
         raw_image_url = ""
@@ -2018,7 +2045,12 @@ def add_inventory_medicine(
     if payload.sellingPrice is not None and payload.sellingPrice > 0:
         selling = round(float(payload.sellingPrice), 2)
     else:
-        selling = calculate_selling_price(mrp, cost)
+        cat_rule = db.query(PricingRuleModel).filter(PricingRuleModel.category == cat).first()
+        if not cat_rule or not cat_rule.enabled:
+            cat_rule = db.query(PricingRuleModel).filter(PricingRuleModel.category == "DEFAULT").first()
+        disc = cat_rule.discount_pct if cat_rule and cat_rule.enabled else 0.0
+        margin = cat_rule.min_margin_pct if cat_rule and cat_rule.enabled else 5.0
+        selling = calculate_selling_price(mrp=mrp, cost_price=cost, discount_pct=disc, min_margin_pct=margin)
 
     pack_shot = resolve_brand_pack_shot(name_clean, company_clean)
 
@@ -2225,6 +2257,119 @@ def clear_staged_medicines(db: Session = Depends(get_db)):
         "success": True,
         "message": f"Discarded {count} draft medicine(s) from staging.",
         "clearedCount": count,
+    }
+
+
+# ==============================================================================
+# 3.1 PRICING & PROFIT MARGIN RULES API (/api/admin/pricing-rules)
+# ==============================================================================
+
+class PricingRuleUpdateItem(BaseModel):
+    category: str
+    discount_pct: float
+    min_margin_pct: Optional[float] = 5.0
+    enabled: Optional[bool] = True
+    notes: Optional[str] = ""
+
+
+class PricingRulesBatchRequest(BaseModel):
+    rules: List[PricingRuleUpdateItem]
+    default_discount: Optional[float] = 0.0
+    default_margin: Optional[float] = 5.0
+
+
+@app.get("/api/admin/pricing-rules")
+def get_pricing_rules(db: Session = Depends(get_db)):
+    """Returns all category discount rules and profit margin floors for admin."""
+    rules = db.query(PricingRuleModel).all()
+    if not rules:
+        init_db()
+        rules = db.query(PricingRuleModel).all()
+    return [r.to_dict() for r in rules]
+
+
+@app.post("/api/admin/pricing-rules")
+def update_pricing_rules(payload: PricingRulesBatchRequest, db: Session = Depends(get_db)):
+    """Updates category-wise discount percentages and margin floors."""
+    for item in payload.rules:
+        r = db.query(PricingRuleModel).filter(PricingRuleModel.category == item.category).first()
+        disc = max(0.0, min(100.0, float(item.discount_pct)))
+        margin = max(0.0, float(item.min_margin_pct if item.min_margin_pct is not None else 5.0))
+        is_en = bool(item.enabled if item.enabled is not None else True)
+
+        if r:
+            r.discount_pct = disc
+            r.min_margin_pct = margin
+            r.enabled = is_en
+            if item.notes:
+                r.notes = item.notes
+            r.updated_at = datetime.utcnow()
+        else:
+            new_r = PricingRuleModel(
+                category=item.category,
+                discount_pct=disc,
+                min_margin_pct=margin,
+                enabled=is_en,
+                notes=item.notes or "",
+            )
+            db.add(new_r)
+
+    db.commit()
+    all_rules = db.query(PricingRuleModel).all()
+    return {
+        "success": True,
+        "message": f"Successfully updated {len(payload.rules)} pricing & margin rule(s).",
+        "rules": [r.to_dict() for r in all_rules],
+    }
+
+
+@app.post("/api/admin/pricing-rules/recalculate-catalog")
+def recalculate_catalog_prices(db: Session = Depends(get_db)):
+    """
+    Recalculates customer selling prices across the entire medicine catalog
+    based on the currently configured category pricing & profit margin rules.
+    Guarantees zero selling below wholesale cost price.
+    """
+    pricing_rules_db = db.query(PricingRuleModel).all()
+    rules_map = {r.category: r for r in pricing_rules_db}
+    default_rule = rules_map.get("DEFAULT")
+    default_discount = default_rule.discount_pct if default_rule else 0.0
+    default_margin = default_rule.min_margin_pct if default_rule else 5.0
+
+    meds = db.query(MedicineModel).all()
+    updated_count = 0
+    now_utc = datetime.utcnow()
+
+    for m in meds:
+        rule = rules_map.get(m.category, default_rule)
+        disc = rule.discount_pct if rule and rule.enabled else default_discount
+        margin = rule.min_margin_pct if rule and rule.enabled else default_margin
+
+        new_price = calculate_selling_price(
+            mrp=m.mrp,
+            cost_price=m.cost_price,
+            discount_pct=disc,
+            min_margin_pct=margin,
+        )
+        if m.selling_price != new_price:
+            m.selling_price = new_price
+            m.updated_at = now_utc
+            updated_count += 1
+
+    db.commit()
+
+    # Broadcast catalog update so all open storefront tabs sync
+    broadcast_order_event_sync("catalog_update", {
+        "action": "recalculate_catalog",
+        "updatedCount": updated_count,
+        "totalCatalog": len(meds),
+    })
+
+    return {
+        "success": True,
+        "message": f"Recalculated prices for {len(meds)} catalog medicines ({updated_count} prices adjusted according to current margin rules).",
+        "updatedCount": updated_count,
+        "totalCatalog": len(meds),
     }
 
 
