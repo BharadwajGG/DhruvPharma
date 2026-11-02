@@ -1908,6 +1908,28 @@ def upload_distributor_inventory(
     }
 
 
+@app.get("/api/inventory/summary")
+def get_inventory_summary(db: Session = Depends(get_db)):
+    """Provides high-level KPI metrics for the Admin Inventory dashboard."""
+    total_count = db.query(MedicineModel).count()
+    live_count = db.query(MedicineModel).filter(MedicineModel.is_published == True).count()
+    staged_count = db.query(MedicineModel).filter(MedicineModel.is_published == False).count()
+    low_stock = db.query(MedicineModel).filter(MedicineModel.is_published == True, MedicineModel.stock_quantity <= MedicineModel.min_stock).count()
+    out_of_stock = db.query(MedicineModel).filter(MedicineModel.is_published == True, MedicineModel.stock_quantity <= 0).count()
+    rx_count = db.query(MedicineModel).filter(MedicineModel.is_published == True, MedicineModel.requires_prescription == True).count()
+    discounted_count = db.query(MedicineModel).filter(MedicineModel.is_published == True, MedicineModel.selling_price < MedicineModel.mrp).count()
+
+    return {
+        "totalMedicines": total_count,
+        "liveTotal": live_count,
+        "stagedTotal": staged_count,
+        "lowStockCount": low_stock,
+        "outOfStockCount": out_of_stock,
+        "rxCount": rx_count,
+        "discountedCount": discounted_count,
+    }
+
+
 @app.get("/api/inventory/staged")
 def get_staged_inventory(
     page: int = 1,
@@ -2139,6 +2161,8 @@ class MedicineUpdateRequest(BaseModel):
     category: Optional[str] = None
     selling_price: Optional[float] = None
     mrp: Optional[float] = None
+    cost_price: Optional[float] = None
+    costPrice: Optional[float] = None
     stock_quantity: Optional[int] = None
     requires_prescription: Optional[bool] = None
     salt: Optional[str] = None
@@ -2164,6 +2188,10 @@ def update_inventory_item(
         item.category = payload.category.strip()
     if payload.selling_price is not None:
         item.selling_price = round(float(payload.selling_price), 2)
+    if payload.cost_price is not None:
+        item.cost_price = round(float(payload.cost_price), 2)
+    elif payload.costPrice is not None:
+        item.cost_price = round(float(payload.costPrice), 2)
     if payload.mrp is not None:
         item.mrp = round(float(payload.mrp), 2)
     if payload.stock_quantity is not None:

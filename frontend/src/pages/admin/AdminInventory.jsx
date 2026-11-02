@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import MedicineImage from '../../components/MedicineImage'
+import { detectDosageForm } from '../../utils/packFormat'
 import {
     Search,
     Upload,
@@ -24,6 +25,8 @@ import {
     Pencil,
     Check,
     Plus,
+    Store,
+    TrendingDown,
 } from 'lucide-react'
 
 const ALL_CATEGORIES = [
@@ -60,8 +63,11 @@ const CATEGORY_COLORS = {
 export default function AdminInventory() {
     const fileInputRef = useRef(null)
 
-    // Active View Tab: 'staged' (Drafts / Ingestion) or 'live' (Storefront)
-    const [activeTab, setActiveTab] = useState('staged')
+    // Active View Tab: 'live' (Storefront Catalog) or 'staged' (Drafts / Ingestion)
+    const [activeTab, setActiveTab] = useState('live')
+
+    // High-Level Dashboard KPI Summary
+    const [inventorySummary, setInventorySummary] = useState(null)
 
     // Staging State
     const [stagedItems, setStagedItems] = useState([])
@@ -117,6 +123,19 @@ export default function AdminInventory() {
         isPublished: true,
         isVisible: true,
     })
+
+    // Fetch High-Level Inventory KPI Summary
+    const fetchSummary = async () => {
+        try {
+            const res = await fetch('http://localhost:8000/api/inventory/summary')
+            if (res.ok) {
+                const data = await res.json()
+                setInventorySummary(data)
+            }
+        } catch (err) {
+            console.warn('Inventory summary fetch timed out or unavailable:', err)
+        }
+    }
 
     // Fetch Staged Items
     const fetchStaged = async () => {
@@ -178,6 +197,10 @@ export default function AdminInventory() {
             setIsLoadingLive(false)
         }
     }
+
+    useEffect(() => {
+        fetchSummary()
+    }, [])
 
     useEffect(() => {
         fetchStaged()
@@ -248,6 +271,7 @@ export default function AdminInventory() {
             }
             fetchStaged()
             fetchLive()
+            fetchSummary()
         } catch (err) {
             console.error('Upload error:', err)
             setFeedbackMsg({
@@ -264,11 +288,32 @@ export default function AdminInventory() {
         }
     }
 
-    // Inline Update Item Handler (Supports Category, Price, Stock, Rx, and Name)
+    // Inline Update Item Handler (Supports Category, Price, Cost/Rate, Stock, Rx, and Name)
     const handleUpdateItem = async (itemId, field, value) => {
         // Optimistic UI update
         const updater = (prev) =>
-            prev.map((item) => (item.id === itemId ? { ...item, [field]: value } : item))
+            prev.map((item) => {
+                if (item.id !== itemId) return item
+                const nextItem = { ...item, [field]: value }
+                if (field === 'cost_price' || field === 'costPrice') {
+                    nextItem.costPrice = parseFloat(value) || 0
+                    nextItem.cost_price = parseFloat(value) || 0
+                }
+                if (field === 'sellingPrice' || field === 'price') {
+                    const num = parseFloat(value) || 0
+                    nextItem.sellingPrice = num
+                    nextItem.price = num
+                }
+                if (field === 'mrp') {
+                    nextItem.mrp = parseFloat(value) || 0
+                }
+                if (field === 'stock' || field === 'stockQuantity') {
+                    const st = parseInt(value) || 0
+                    nextItem.stock = st
+                    nextItem.stockQuantity = st
+                }
+                return nextItem
+            })
 
         if (activeTab === 'staged') {
             setStagedItems(updater)
@@ -281,8 +326,9 @@ export default function AdminInventory() {
         if (field === 'name') payload.name = String(value).trim()
         if (field === 'category') payload.category = value
         if (field === 'price' || field === 'sellingPrice') payload.selling_price = parseFloat(value) || 0
+        if (field === 'cost_price' || field === 'costPrice') payload.cost_price = parseFloat(value) || 0
         if (field === 'mrp') payload.mrp = parseFloat(value) || 0
-        if (field === 'stock') payload.stock_quantity = parseInt(value) || 0
+        if (field === 'stock' || field === 'stockQuantity') payload.stock_quantity = parseInt(value) || 0
         if (field === 'requires_rx' || field === 'requiresPrescription') payload.requires_prescription = Boolean(value)
         if (field === 'is_visible' || field === 'isVisible') payload.is_visible = Boolean(value)
 
@@ -294,6 +340,8 @@ export default function AdminInventory() {
             })
             if (!res.ok) {
                 console.error('Failed to sync inline update with server.')
+            } else {
+                fetchSummary()
             }
         } catch (err) {
             console.error('Inline update network error:', err)
@@ -363,6 +411,7 @@ export default function AdminInventory() {
                     setLiveItems((prev) => prev.filter((i) => i.id !== itemId))
                     setLiveTotal((prev) => Math.max(0, prev - 1))
                 }
+                fetchSummary()
             }
         } catch (err) {
             console.error('Delete error:', err)
@@ -411,6 +460,7 @@ export default function AdminInventory() {
                 } catch (e) {}
                 fetchStaged()
                 fetchLive()
+                fetchSummary()
                 setActiveTab('live')
             } else {
                 alert(data.detail || 'Failed to publish.')
@@ -522,13 +572,13 @@ export default function AdminInventory() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <div className="flex items-center gap-2.5">
-                            <h1 className="text-2xl font-bold text-slate-900">Medicine Stock &amp; Catalog</h1>
-                            <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5">
-                                <Sparkles size={13} /> Smart Category Assistant
+                            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Medicine Stock &amp; Catalog</h1>
+                            <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5 shadow-2xs">
+                                <Sparkles size={13} /> Real-time Pricing &amp; Stock
                             </span>
                         </div>
                         <p className="text-slate-500 text-xs sm:text-sm mt-1">
-                            Upload distributor CSV files, review medicine details and prices, and put medicines into the live customer store.
+                            Manage distributor rates, retail MRPs, customer selling prices, and publish medicines live to the online storefront.
                         </p>
                     </div>
 
@@ -563,6 +613,106 @@ export default function AdminInventory() {
                             <Download size={14} className="text-emerald-700" />
                             <span>Sample CSV</span>
                         </a>
+
+                        {/* Refresh Button */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                fetchSummary()
+                                if (activeTab === 'staged') fetchStaged()
+                                else fetchLive()
+                            }}
+                            className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                            title="Refresh medicines and summary"
+                        >
+                            <RefreshCw size={13} className={isLoadingStaged || isLoadingLive ? 'animate-spin text-emerald-600' : 'text-slate-500'} />
+                            <span>Refresh</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* ── KPI Summary Cards ── */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Card 1: Total Medicines */}
+                    <div className="bg-white rounded-2xl border border-slate-200/90 p-4.5 shadow-xs flex items-center gap-3.5 hover:shadow-sm transition-all">
+                        <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0 border border-blue-100/80">
+                            <Pill size={22} />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Medicines</p>
+                            <p className="text-2xl font-black text-slate-900 mt-0.5">
+                                {(inventorySummary?.totalMedicines ?? (liveTotal + stagedTotal)).toLocaleString()}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">Live Store &amp; Drafts</p>
+                        </div>
+                    </div>
+
+                    {/* Card 2: Live Store Active */}
+                    <div 
+                        onClick={() => setActiveTab('live')}
+                        className={`bg-white rounded-2xl border p-4.5 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer ${
+                            activeTab === 'live' ? 'border-emerald-500 ring-2 ring-emerald-100 shadow-sm' : 'border-slate-200/90 hover:border-emerald-300'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-100">
+                            <CheckCircle size={22} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Live Store</p>
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.2 rounded-full">Active</span>
+                            </div>
+                            <p className="text-2xl font-black text-emerald-700 mt-0.5">
+                                {(inventorySummary?.liveTotal ?? liveTotal).toLocaleString()}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">Visible to customers online</p>
+                        </div>
+                    </div>
+
+                    {/* Card 3: Drafts / Waiting */}
+                    <div 
+                        onClick={() => setActiveTab('staged')}
+                        className={`bg-white rounded-2xl border p-4.5 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer ${
+                            activeTab === 'staged' ? 'border-amber-500 ring-2 ring-amber-100 shadow-sm' : 'border-slate-200/90 hover:border-amber-300'
+                        }`}
+                    >
+                        <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0 border border-amber-100">
+                            <ShieldAlert size={22} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Drafts Queue</p>
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.2 rounded-full">Pending</span>
+                            </div>
+                            <p className="text-2xl font-black text-amber-600 mt-0.5">
+                                {(inventorySummary?.stagedTotal ?? stagedTotal).toLocaleString()}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                {(inventorySummary?.stagedTotal ?? stagedTotal) > 0 ? 'Review & publish to store' : 'All uploads published'}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Card 4: Low Stock Alert */}
+                    <div className="bg-white rounded-2xl border border-slate-200/90 p-4.5 shadow-xs flex items-center gap-3.5 hover:shadow-sm transition-all">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
+                            (inventorySummary?.lowStockCount || 0) > 0 
+                                ? 'bg-rose-50 text-rose-600 border-rose-100' 
+                                : 'bg-slate-50 text-slate-600 border-slate-100'
+                        }`}>
+                            <AlertCircle size={22} />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Stock Alerts</p>
+                            <p className={`text-2xl font-black mt-0.5 ${
+                                (inventorySummary?.lowStockCount || 0) > 0 ? 'text-rose-600' : 'text-slate-800'
+                            }`}>
+                                {inventorySummary?.lowStockCount || 0}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                {inventorySummary?.outOfStockCount ? `${inventorySummary.outOfStockCount} out of stock` : 'Healthy stock levels'}
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -642,7 +792,7 @@ export default function AdminInventory() {
                                         : 'Upload Distributor Medicine File (.CSV)'}
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-0.5">
-                                    Supports CSV exports from Marg ERP, Busy, or Excel spreadsheets. Salts and categories are assigned automatically.
+                                    Supports Marg ERP, Busy, or Excel CSV exports. Automatically parses MRP, Rate, salt composition, and medicine forms.
                                 </p>
                             </div>
                         </div>
@@ -692,26 +842,6 @@ export default function AdminInventory() {
                 <div className="flex items-center justify-between border-b border-slate-200">
                     <div className="flex gap-4">
                         <button
-                            onClick={() => setActiveTab('staged')}
-                            className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
-                                activeTab === 'staged'
-                                    ? 'border-emerald-600 text-emerald-700'
-                                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                            }`}
-                        >
-                            <span>New Uploads (Drafts)</span>
-                            <span
-                                className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                                    activeTab === 'staged'
-                                        ? 'bg-emerald-100 text-emerald-800'
-                                        : 'bg-slate-100 text-slate-600'
-                                }`}
-                            >
-                                {stagedTotal}
-                            </span>
-                        </button>
-
-                        <button
                             onClick={() => setActiveTab('live')}
                             className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
                                 activeTab === 'live'
@@ -730,13 +860,33 @@ export default function AdminInventory() {
                                 {liveTotal}
                             </span>
                         </button>
+
+                        <button
+                            onClick={() => setActiveTab('staged')}
+                            className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 cursor-pointer ${
+                                activeTab === 'staged'
+                                    ? 'border-emerald-600 text-emerald-700'
+                                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <span>New Uploads (Drafts)</span>
+                            <span
+                                className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                    activeTab === 'staged'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : 'bg-slate-100 text-slate-600'
+                                }`}
+                            >
+                                {stagedTotal}
+                            </span>
+                        </button>
                     </div>
 
                     <button
                         onClick={activeTab === 'staged' ? fetchStaged : fetchLive}
                         className="text-xs text-slate-500 hover:text-emerald-700 flex items-center gap-1.5 transition-colors pb-3 font-semibold cursor-pointer"
                     >
-                        <RefreshCw size={12} className={isLoadingStaged || isLoadingLive ? 'animate-spin' : ''} />
+                        <RefreshCw size={12} className={isLoadingStaged || isLoadingLive ? 'animate-spin text-emerald-600' : ''} />
                         Refresh List
                     </button>
                 </div>
@@ -753,7 +903,7 @@ export default function AdminInventory() {
                                     {stagedTotal} Draft Medicines Waiting for Approval
                                 </h4>
                                 <p className="text-xs text-amber-800">
-                                    Customers cannot see these draft medicines yet. You can edit names, prices, or categories below, then click &ldquo;Put in Store&rdquo;.
+                                    Customers cannot see these draft medicines yet. You can edit names, rates, or categories below, then click &ldquo;Put in Store&rdquo;.
                                 </p>
                             </div>
                         </div>
@@ -780,13 +930,13 @@ export default function AdminInventory() {
                 )}
 
                 {/* ── Search & Category Filter Bar ── */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-xs p-4 space-y-3">
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 space-y-3">
                     <div className="flex flex-col sm:flex-row gap-3">
                         <div className="relative flex-1">
-                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
-                                placeholder="Search by medicine name, salt composition, company or code..."
+                                placeholder="Search medicines by name, salt composition, company or item code..."
                                 value={activeTab === 'staged' ? stagedSearch : liveSearch}
                                 onChange={(e) => {
                                     if (activeTab === 'staged') {
@@ -797,12 +947,30 @@ export default function AdminInventory() {
                                         setLivePage(1)
                                     }
                                 }}
-                                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                className="w-full pl-9 pr-9 py-2.5 border border-slate-200 rounded-xl text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all text-slate-800"
                             />
+                            {((activeTab === 'staged' ? stagedSearch : liveSearch) || '').length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (activeTab === 'staged') {
+                                            setStagedSearch('')
+                                            setStagedPage(1)
+                                        } else {
+                                            setLiveSearch('')
+                                            setLivePage(1)
+                                        }
+                                    }}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    title="Clear search"
+                                >
+                                    <X size={15} />
+                                </button>
+                            )}
                         </div>
 
                         <div className="flex items-center gap-2">
-                            <label className="text-xs text-gray-500 font-medium">Rows:</label>
+                            <label className="text-xs text-slate-500 font-semibold whitespace-nowrap">Rows:</label>
                             <select
                                 value={activeTab === 'staged' ? stagedLimit : liveLimit}
                                 onChange={(e) => {
@@ -815,17 +983,17 @@ export default function AdminInventory() {
                                         setLivePage(1)
                                     }
                                 }}
-                                className="border border-gray-200 rounded-xl px-2.5 py-2 text-xs outline-none focus:border-blue-500 bg-white"
+                                className="border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:border-emerald-500 bg-white text-slate-700 cursor-pointer"
                             >
-                                <option value={25}>25</option>
-                                <option value={50}>50</option>
-                                <option value={100}>100</option>
+                                <option value={25}>25 per page</option>
+                                <option value={50}>50 per page</option>
+                                <option value={100}>100 per page</option>
                             </select>
                         </div>
                     </div>
 
                     {/* Category Filter Badges */}
-                    <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
+                    <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
                         {ALL_CATEGORIES.map((cat) => {
                             const isSelected = (activeTab === 'staged' ? stagedCategory : liveCategory) === cat
                             const count = activeTab === 'staged' ? stagedCategoryCounts[cat] : null
@@ -842,17 +1010,17 @@ export default function AdminInventory() {
                                             setLivePage(1)
                                         }
                                     }}
-                                    className={`shrink-0 px-3 py-1.5 rounded-lg font-medium transition-colors border text-[11px] flex items-center gap-1.5 ${
+                                    className={`shrink-0 px-3 py-1.5 rounded-xl font-medium transition-all border text-[11px] flex items-center gap-1.5 cursor-pointer ${
                                         isSelected
-                                            ? 'bg-blue-600 text-white border-blue-600 font-semibold'
-                                            : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                                            ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs'
+                                            : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
                                     }`}
                                 >
                                     <span>{cat}</span>
                                     {count !== undefined && count !== null && (
                                         <span
                                             className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
-                                                isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                                                isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
                                             }`}
                                         >
                                             {count}
@@ -865,213 +1033,294 @@ export default function AdminInventory() {
                 </div>
 
                 {/* ── Interactive Table ── */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-xs overflow-hidden">
+                <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                                    <th className="py-3 px-4">Item Code</th>
-                                    <th className="py-3 px-4 min-w-[220px]">Medicine Name &amp; Salt</th>
-                                    <th className="py-3 px-4 min-w-[190px]">Category</th>
-                                    <th className="py-3 px-3 text-right">MRP (₹)</th>
-                                    <th className="py-3 px-3 text-right">Selling Price (₹)</th>
-                                    <th className="py-3 px-3 text-center">Stock Qty</th>
-                                    <th className="py-3 px-3 text-center">Doctor Rx Needed?</th>
-                                    <th className="py-3 px-3 text-center">Show in Store?</th>
-                                    <th className="py-3 px-4 text-center">Remove</th>
+                                <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                                    <th className="py-3.5 px-4">Item Code</th>
+                                    <th className="py-3.5 px-4 min-w-[260px]">Medicine Name &amp; Salt</th>
+                                    <th className="py-3.5 px-4 min-w-[170px]">Category</th>
+                                    <th className="py-3.5 px-3 text-right min-w-[105px]">MRP (₹)</th>
+                                    <th className="py-3.5 px-3 text-right min-w-[110px]" title="Distributor Purchase Rate (Cost Price from CSV)">
+                                        Rate / Cost (₹)
+                                    </th>
+                                    <th className="py-3.5 px-3 text-right min-w-[130px]">Selling Price (₹)</th>
+                                    <th className="py-3.5 px-3 text-center min-w-[95px]">Stock Qty</th>
+                                    <th className="py-3.5 px-3 text-center min-w-[110px]">Doctor Rx</th>
+                                    <th className="py-3.5 px-3 text-center min-w-[110px]">Store Visibility</th>
+                                    <th className="py-3.5 px-4 text-center w-16">Remove</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {currentItems.map((item) => (
-                                    <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                                        {/* Code */}
-                                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                                            {item.itemCode}
-                                        </td>
+                                {currentItems.map((item) => {
+                                    const mrp = Number(item.mrp) || 0
+                                    const selling = Number(item.sellingPrice || item.price) || 0
+                                    const costRate = Number(item.costPrice ?? item.cost_price ?? 0)
+                                    const discountPct = mrp > 0 && selling < mrp ? Math.round(((mrp - selling) / mrp) * 100) : 0
+                                    const dosageForm = detectDosageForm(item)
+                                    const cleanMfr = (item.manufacturer || item.brand || '').replace(/^(?:manufactured\s+by|mfr\s*:?|marketed\s+by)\s*/i, '').trim()
 
-                                        {/* Name & Composition (Editable) */}
-                                        <td className="py-3 px-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden shrink-0 bg-white shadow-2xs flex items-center justify-center">
-                                                    <MedicineImage medicine={item} aspectRatio="thumb" showGenuineBadge={false} className="w-full h-full" />
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    {editingNameId === item.id ? (
-                                                        <div className="flex items-center gap-1.5 my-0.5">
-                                                            <input
-                                                                type="text"
-                                                                autoFocus
-                                                                value={editingNameValue}
-                                                                onChange={(e) => setEditingNameValue(e.target.value)}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter') handleSaveName(item.id)
-                                                                    if (e.key === 'Escape') setEditingNameId(null)
-                                                                }}
-                                                                className="w-full px-2 py-1 text-xs font-bold border-2 border-emerald-600 rounded-lg outline-none bg-emerald-50/60 text-slate-900 shadow-xs"
-                                                                placeholder="Edit medicine name..."
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleSaveName(item.id)}
-                                                                className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors cursor-pointer shrink-0"
-                                                                title="Save name"
-                                                            >
-                                                                <Check size={13} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setEditingNameId(null)}
-                                                                className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-colors cursor-pointer shrink-0"
-                                                                title="Cancel"
-                                                            >
-                                                                <X size={13} />
-                                                            </button>
+                                    return (
+                                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                                            {/* Code */}
+                                            <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                                                <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold text-[10px] border border-slate-200">
+                                                    {item.itemCode}
+                                                </span>
+                                            </td>
+
+                                            {/* Name & Composition (Editable) */}
+                                            <td className="py-3 px-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden shrink-0 bg-white shadow-2xs flex items-center justify-center">
+                                                        <MedicineImage medicine={item} aspectRatio="thumb" showGenuineBadge={false} className="w-full h-full" />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        {editingNameId === item.id ? (
+                                                            <div className="flex items-center gap-1.5 my-0.5">
+                                                                <input
+                                                                    type="text"
+                                                                    autoFocus
+                                                                    value={editingNameValue}
+                                                                    onChange={(e) => setEditingNameValue(e.target.value)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') handleSaveName(item.id)
+                                                                        if (e.key === 'Escape') setEditingNameId(null)
+                                                                    }}
+                                                                    className="w-full px-2 py-1 text-xs font-bold border-2 border-emerald-600 rounded-lg outline-none bg-emerald-50/60 text-slate-900 shadow-xs"
+                                                                    placeholder="Edit medicine name..."
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSaveName(item.id)}
+                                                                    className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors cursor-pointer shrink-0"
+                                                                    title="Save name"
+                                                                >
+                                                                    <Check size={13} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEditingNameId(null)}
+                                                                    className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-colors cursor-pointer shrink-0"
+                                                                    title="Cancel"
+                                                                >
+                                                                    <X size={13} />
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center gap-1.5 group/name">
+                                                                <p className="font-bold text-slate-900 text-xs truncate" title={item.name}>
+                                                                    {item.name}
+                                                                </p>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setEditingNameId(item.id)
+                                                                        setEditingNameValue(item.name)
+                                                                    }}
+                                                                    className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-all cursor-pointer shrink-0 opacity-0 group-hover/name:opacity-100"
+                                                                    title="Click pencil to edit medicine name"
+                                                                >
+                                                                    <Pencil size={12} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1" title={item.salt}>
+                                                            {item.salt || <span className="italic text-slate-400">No salt listed</span>}
+                                                        </p>
+                                                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                                            {dosageForm && (
+                                                                <span className="text-[10px] font-semibold px-1.5 py-0.2 bg-slate-100 text-slate-700 rounded border border-slate-200">
+                                                                    {dosageForm}
+                                                                </span>
+                                                            )}
+                                                            {cleanMfr && (
+                                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+                                                                    {cleanMfr}
+                                                                </span>
+                                                            )}
                                                         </div>
+                                                    </div>
+                                                </div>
+                                            </td>
+
+                                            {/* Interactive Category Dropdown Pill */}
+                                            <td className="py-3 px-4">
+                                                <select
+                                                    value={item.category}
+                                                    onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
+                                                    className={`text-[11px] font-semibold py-1.5 px-2.5 rounded-xl border outline-none cursor-pointer transition-all ${
+                                                        CATEGORY_COLORS[item.category] || 'bg-slate-100 text-slate-800 border-slate-200'
+                                                    }`}
+                                                >
+                                                    {ALL_CATEGORIES.filter((c) => c !== 'All').map((cat) => (
+                                                        <option key={cat} value={cat} className="bg-white text-slate-800">
+                                                            {cat}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </td>
+
+                                            {/* MRP (₹) */}
+                                            <td className="py-3 px-3 text-right">
+                                                <div className="inline-flex items-center relative">
+                                                    <span className="absolute left-2.5 text-slate-400 font-bold text-xs pointer-events-none">₹</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        defaultValue={mrp}
+                                                        onBlur={(e) => handleUpdateItem(item.id, 'mrp', e.target.value)}
+                                                        className="w-22 text-right pr-2 pl-6 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-400 bg-white transition-all"
+                                                        title="Maximum Retail Price (Printed on Pack)"
+                                                    />
+                                                </div>
+                                            </td>
+
+                                            {/* Distributor Rate / Cost (₹) */}
+                                            <td className="py-3 px-3 text-right">
+                                                <div className="inline-flex items-center relative">
+                                                    <span className="absolute left-2.5 text-blue-500 font-bold text-xs pointer-events-none">₹</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        defaultValue={costRate}
+                                                        onBlur={(e) => handleUpdateItem(item.id, 'cost_price', e.target.value)}
+                                                        className="w-22 text-right pr-2 pl-6 py-1.5 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-300 bg-blue-50/40 transition-all"
+                                                        title="Distributor Purchase Rate (from CSV)"
+                                                    />
+                                                </div>
+                                            </td>
+
+                                            {/* Selling Price (₹) with live dynamic % OFF */}
+                                            <td className="py-3 px-3 text-right">
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <div className="inline-flex items-center relative">
+                                                        <span className="absolute left-2.5 text-emerald-600 font-bold text-xs pointer-events-none">₹</span>
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            defaultValue={selling}
+                                                            onBlur={(e) => handleUpdateItem(item.id, 'sellingPrice', e.target.value)}
+                                                            className="w-24 text-right pr-2 pl-6 py-1.5 border border-emerald-300 rounded-lg text-xs font-black text-emerald-800 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-400 bg-emerald-50/50 transition-all"
+                                                            title="Selling price charged to patients in store"
+                                                        />
+                                                    </div>
+                                                    {discountPct > 0 ? (
+                                                        <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-100 border border-emerald-300 px-1.5 py-0.2 rounded tracking-tight">
+                                                            {discountPct}% OFF
+                                                        </span>
                                                     ) : (
-                                                        <div className="flex items-center gap-1.5 group/name">
-                                                            <p className="font-bold text-slate-900 text-xs truncate" title={item.name}>
-                                                                {item.name}
-                                                            </p>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setEditingNameId(item.id)
-                                                                    setEditingNameValue(item.name)
-                                                                }}
-                                                                className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-all cursor-pointer shrink-0"
-                                                                title="Click pencil to edit medicine name"
-                                                            >
-                                                                <Pencil size={12} />
-                                                            </button>
-                                                        </div>
+                                                        <span className="text-[10px] font-medium text-slate-400 px-1">
+                                                            Full MRP
+                                                        </span>
                                                     )}
-                                                    <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1" title={item.salt}>
-                                                        {item.salt || <span className="italic text-slate-400">No salt listed</span>}
-                                                    </p>
-                                                    <p className="text-[10px] text-slate-400 mt-0.5">{item.manufacturer}</p>
                                                 </div>
-                                            </div>
-                                        </td>
+                                            </td>
 
-                                        {/* Interactive Category Dropdown Pill */}
-                                        <td className="py-3 px-4">
-                                            <select
-                                                value={item.category}
-                                                onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
-                                                className={`text-[11px] font-semibold py-1 px-2.5 rounded-lg border outline-none cursor-pointer transition-all ${
-                                                    CATEGORY_COLORS[item.category] || 'bg-slate-100 text-slate-800 border-slate-200'
-                                                }`}
-                                            >
-                                                {ALL_CATEGORIES.filter((c) => c !== 'All').map((cat) => (
-                                                    <option key={cat} value={cat} className="bg-white text-slate-800">
-                                                        {cat}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </td>
+                                            {/* Stock */}
+                                            <td className="py-3 px-3 text-center">
+                                                {(() => {
+                                                    const stock = Number(item.stock ?? item.stockQuantity ?? 0)
+                                                    const minStock = Number(item.minStock || 15)
+                                                    const isOut = stock <= 0
+                                                    const isLow = !isOut && stock <= minStock
 
-                                        {/* MRP */}
-                                        <td className="py-3 px-3 text-right">
-                                            <input
-                                                type="number"
-                                                step="0.5"
-                                                defaultValue={item.mrp}
-                                                onBlur={(e) => handleUpdateItem(item.id, 'mrp', e.target.value)}
-                                                className="w-18 text-right px-2 py-1 border border-slate-200 rounded-lg text-xs outline-none focus:border-emerald-600 bg-white"
-                                            />
-                                        </td>
-
-                                        {/* Selling Price */}
-                                        <td className="py-3 px-3 text-right">
-                                            <input
-                                                type="number"
-                                                step="0.5"
-                                                defaultValue={item.sellingPrice || item.price}
-                                                onBlur={(e) => handleUpdateItem(item.id, 'sellingPrice', e.target.value)}
-                                                className="w-18 text-right font-bold text-emerald-800 px-2 py-1 border border-emerald-200 rounded-lg text-xs outline-none focus:border-emerald-600 bg-emerald-50/30"
-                                            />
-                                        </td>
-
-                                        {/* Stock */}
-                                        <td className="py-3 px-3 text-center">
-                                            <input
-                                                type="number"
-                                                defaultValue={item.stock}
-                                                onBlur={(e) => handleUpdateItem(item.id, 'stock', e.target.value)}
-                                                className={`w-14 text-center px-1.5 py-1 border rounded-lg text-xs outline-none focus:border-emerald-600 font-semibold ${
-                                                    item.stock <= 0
-                                                        ? 'border-rose-300 text-rose-600 bg-rose-50'
-                                                        : item.stock <= (item.minStock || 15)
-                                                        ? 'border-amber-300 text-amber-700 bg-amber-50'
-                                                        : 'border-slate-200 text-slate-800 bg-white'
-                                                }`}
-                                            />
-                                        </td>
-
-                                        {/* Rx Required Toggle Pill */}
-                                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    handleUpdateItem(
-                                                        item.id,
-                                                        'requires_rx',
-                                                        !(item.requires_rx || item.requiresPrescription)
+                                                    return (
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            <input
+                                                                type="number"
+                                                                defaultValue={stock}
+                                                                onBlur={(e) => handleUpdateItem(item.id, 'stock', e.target.value)}
+                                                                className={`w-16 text-center px-1.5 py-1.5 border rounded-lg text-xs font-bold outline-none transition-all ${
+                                                                    isOut
+                                                                        ? 'border-rose-300 text-rose-700 bg-rose-50 focus:border-rose-500'
+                                                                        : isLow
+                                                                        ? 'border-amber-300 text-amber-800 bg-amber-50 focus:border-amber-500'
+                                                                        : 'border-slate-200 text-slate-800 bg-white focus:border-emerald-600'
+                                                                }`}
+                                                            />
+                                                            <span
+                                                                className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded ${
+                                                                    isOut
+                                                                        ? 'bg-rose-100 text-rose-700'
+                                                                        : isLow
+                                                                        ? 'bg-amber-100 text-amber-800'
+                                                                        : 'bg-emerald-100 text-emerald-800'
+                                                                }`}
+                                                            >
+                                                                {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}
+                                                            </span>
+                                                        </div>
                                                     )
-                                                }
-                                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${
-                                                    item.requires_rx || item.requiresPrescription
-                                                        ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
-                                                        : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                                                }`}
-                                                title="Click to toggle Prescription requirement"
-                                            >
-                                                {item.requires_rx || item.requiresPrescription ? 'Yes (Rx Required)' : 'No (Without Rx)'}
-                                            </button>
-                                        </td>
+                                                })()}
+                                            </td>
 
-                                        {/* Showcase / Hide Toggle Pill */}
-                                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                                            {(() => {
-                                                const isVis = item.isVisible !== false && item.is_visible !== false
-                                                return (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleToggleVisibility(item.id, isVis)}
-                                                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5 ${
-                                                            isVis
-                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
-                                                                : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
-                                                        }`}
-                                                        title={
-                                                            isVis
-                                                                ? 'Currently visible on customer storefront. Click to hide.'
-                                                                : 'Currently hidden from customer storefront. Click to showcase.'
-                                                        }
-                                                    >
-                                                        {isVis ? <Eye size={12} className="text-emerald-600" /> : <EyeOff size={12} className="text-slate-400" />}
-                                                        <span>{isVis ? 'Visible' : 'Hidden'}</span>
-                                                    </button>
-                                                )
-                                            })()}
-                                        </td>
+                                            {/* Doctor Rx Needed Toggle Pill */}
+                                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        handleUpdateItem(
+                                                            item.id,
+                                                            'requires_rx',
+                                                            !(item.requires_rx || item.requiresPrescription)
+                                                        )
+                                                    }
+                                                    className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-2xs ${
+                                                        item.requires_rx || item.requiresPrescription
+                                                            ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                                                            : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                                    }`}
+                                                    title="Click to toggle Prescription requirement"
+                                                >
+                                                    {item.requires_rx || item.requiresPrescription ? 'Rx Required' : 'Direct Buy (No Rx)'}
+                                                </button>
+                                            </td>
 
-                                        {/* Actions */}
-                                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                                            <button
-                                                onClick={() => handleDeleteItem(item.id, item.name)}
-                                                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                                                title="Remove medicine"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            {/* Showcase / Hide Toggle Pill */}
+                                            <td className="py-3 px-3 text-center whitespace-nowrap">
+                                                {(() => {
+                                                    const isVis = item.isVisible !== false && item.is_visible !== false
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleVisibility(item.id, isVis)}
+                                                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-2xs ${
+                                                                isVis
+                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                                                    : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                                                            }`}
+                                                            title={
+                                                                isVis
+                                                                    ? 'Currently visible on customer storefront. Click to hide.'
+                                                                    : 'Currently hidden from customer storefront. Click to showcase.'
+                                                            }
+                                                        >
+                                                            {isVis ? <Eye size={13} className="text-emerald-600" /> : <EyeOff size={13} className="text-slate-400" />}
+                                                            <span>{isVis ? 'Live on Store' : 'Hidden'}</span>
+                                                        </button>
+                                                    )
+                                                })()}
+                                            </td>
+
+                                            {/* Actions */}
+                                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                                                <button
+                                                    onClick={() => handleDeleteItem(item.id, item.name)}
+                                                    className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                                    title="Remove medicine"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
 
                                 {currentItems.length === 0 && (
                                     <tr>
-                                        <td colSpan={9} className="text-center py-12 text-slate-400">
+                                        <td colSpan={10} className="text-center py-12 text-slate-400">
                                             <Pill size={36} className="mx-auto mb-2 text-slate-300" />
                                             <p className="font-bold text-slate-600 text-sm">
                                                 No medicines found in {activeTab === 'staged' ? 'New Uploads (Drafts)' : 'Store Catalog (Live)'}.
