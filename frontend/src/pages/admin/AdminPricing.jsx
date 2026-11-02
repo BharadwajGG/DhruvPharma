@@ -166,10 +166,34 @@ export default function AdminPricing() {
 
     // Calculate customer price example for ₹100 medicine
     const getExample = (discountVal) => {
-        const d = parseFloat(discountVal) || 0
+        const d = parseFloat(discountVal)
+        if (d === -1) {
+            return {
+                mode: 'mrp',
+                label: 'Full MRP (100%)',
+                desc: 'Sold at printed MRP without discount',
+                custPays: '₹100 (Full MRP)',
+                custSaves: 'No Discount (0% OFF)',
+            }
+        }
+        if (d === 0 || isNaN(d)) {
+            return {
+                mode: 'rate',
+                label: 'CSV Distributor Rate',
+                desc: 'Sells at CSV Rate (Auto % OFF)',
+                custPays: 'CSV Rate (e.g. ₹75)',
+                custSaves: 'Auto % OFF (e.g. 25% OFF)',
+            }
+        }
         const custPays = Math.round((100 * (1 - d / 100)) * 100) / 100
         const custSaves = Math.round((100 - custPays) * 100) / 100
-        return { custPays, custSaves, d }
+        return {
+            mode: 'custom',
+            label: `${d}% OFF`,
+            desc: `Customer saves ₹${custSaves} on ₹100`,
+            custPays: `₹${custPays}`,
+            custSaves: `Customer Saves ₹${custSaves} (${d}% OFF)`,
+        }
     }
 
     return (
@@ -234,16 +258,16 @@ export default function AdminPricing() {
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs leading-relaxed">
                         <div className="bg-white/80 p-3 rounded-xl border border-blue-100">
-                            <span className="font-bold text-blue-900 block mb-0.5">1. Full MRP (0% OFF)</span>
-                            Customer pays the exact price printed on the box. Maximum profit for you (best for Antibiotics &amp; high-demand items).
+                            <span className="font-bold text-blue-900 block mb-0.5">1. CSV Rate (Default - Auto % OFF)</span>
+                            Customer pays the distributor <strong>Rate</strong> from your CSV. The store automatically displays the exact discount off MRP (e.g. MRP ₹100, Rate ₹75 = 25% OFF).
                         </div>
                         <div className="bg-white/80 p-3 rounded-xl border border-blue-100">
-                            <span className="font-bold text-blue-900 block mb-0.5">2. Small Discount (5% OFF)</span>
-                            Customer gets ₹5 off on ₹100. Keeps regular monthly patients (BP, Diabetes) loyal and happy.
+                            <span className="font-bold text-blue-900 block mb-0.5">2. Fixed % Discount (e.g. 5% or 10%)</span>
+                            Applies a flat discount off printed MRP (e.g. ₹5 or ₹10 off on ₹100) while safeguarding that price never falls below your wholesale cost.
                         </div>
                         <div className="bg-white/80 p-3 rounded-xl border border-blue-100">
-                            <span className="font-bold text-blue-900 block mb-0.5">3. One-Click Update</span>
-                            Whenever you change any percentage below and click <strong>"Save &amp; Apply to Store Now"</strong>, all medicine prices in the customer store update immediately!
+                            <span className="font-bold text-blue-900 block mb-0.5">3. Full MRP (No Discount)</span>
+                            Customer pays the 100% printed MRP price on the box without any discount cut line.
                         </div>
                     </div>
                 </div>
@@ -285,7 +309,18 @@ export default function AdminPricing() {
                                 <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 pl-4 md:pl-0">
                                     {/* Quick Selection Buttons */}
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                        {[0, 5, 8, 10, 12].map((preset) => {
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSetDiscount(rule.category, 0)}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                                currentDisc === 0
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                            }`}
+                                        >
+                                            CSV Rate (Auto % OFF)
+                                        </button>
+                                        {[5, 8, 10, 12].map((preset) => {
                                             const isSelected = currentDisc === preset
                                             return (
                                                 <button
@@ -298,16 +333,27 @@ export default function AdminPricing() {
                                                             : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                                                     }`}
                                                 >
-                                                    {preset === 0 ? 'Full MRP (0%)' : `${preset}% OFF`}
+                                                    {preset}% OFF
                                                 </button>
                                             )
                                         })}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSetDiscount(rule.category, -1)}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                                currentDisc === -1
+                                                    ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                            }`}
+                                        >
+                                            Full MRP (0% OFF)
+                                        </button>
 
                                         {/* Custom input */}
                                         <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1">
                                             <input
                                                 type="number"
-                                                min="0"
+                                                min="-1"
                                                 max="50"
                                                 step="0.5"
                                                 value={currentDisc}
@@ -319,15 +365,15 @@ export default function AdminPricing() {
                                     </div>
 
                                     {/* Customer Price Preview Pill */}
-                                    <div className="bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-right min-w-[150px]">
+                                    <div className="bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-right min-w-[160px]">
                                         <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
                                             Customer Pays
                                         </p>
                                         <p className="text-xs font-bold text-slate-900 mt-0.5">
-                                            ₹{ex.custPays} on ₹100 MRP
+                                            {ex.custPays}
                                         </p>
                                         <span className="text-[11px] font-black text-emerald-700 block">
-                                            {ex.custSaves > 0 ? `Customer Saves ₹${ex.custSaves}` : 'Sold at Full MRP'}
+                                            {ex.custSaves}
                                         </span>
                                     </div>
                                 </div>

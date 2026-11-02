@@ -366,10 +366,12 @@ def calculate_selling_price(
     cost_price: float = 0.0,
     discount_pct: float = 0.0,
     min_margin_pct: float = 5.0,
+    pricing_strategy: str = "rate",
 ) -> float:
     """
-    Calculate customer selling price with category-specific store discount,
-    guaranteeing it never falls below wholesale cost price + safe profit buffer.
+    Calculate customer selling price.
+    By default, customer pays the distributor CSV Rate (cost_price), ensuring the customer
+    automatically gets the true psychological discount: ((MRP - Rate) / MRP) * 100.
     """
     try:
         mrp_val = float(mrp)
@@ -384,15 +386,23 @@ def calculate_selling_price(
     if mrp_val <= 0:
         return round(cost_val, 2)
 
-    # 1. Apply category discount
-    discounted = mrp_val * (1.0 - (discount_pct / 100.0))
+    # Strategy 1: Explicitly requested Full MRP (no discount)
+    if discount_pct == -1 or pricing_strategy == "full_mrp":
+        return round(mrp_val, 2)
 
-    # 2. Protect pharmacy margin: enforce wholesale cost floor with profit buffer
-    cost_floor = cost_val * (1.0 + (min_margin_pct / 100.0)) if cost_val > 0 else 0.0
-    final_price = max(discounted, cost_floor, cost_val)
+    # Strategy 2: Explicit custom category discount > 0% off MRP
+    if discount_pct > 0:
+        discounted = mrp_val * (1.0 - (discount_pct / 100.0))
+        cost_floor = cost_val * (1.0 + (min_margin_pct / 100.0)) if cost_val > 0 else 0.0
+        final_price = max(discounted, cost_floor, cost_val)
+        final_price = min(final_price, mrp_val)
+        return round(final_price, 2)
 
-    # 3. Statutory safeguard: never exceed official MRP
-    final_price = min(final_price, mrp_val)
+    # Strategy 3 (Default): Sell at CSV Rate!
+    # When discount_pct is 0 or strategy is "rate", customer price is the distributor Rate,
+    # and the customer automatically receives the dynamic % OFF: ((MRP - Rate) / MRP) * 100
+    if cost_val > 0 and cost_val <= mrp_val:
+        return round(cost_val, 2)
 
-    return round(final_price, 2)
+    return round(mrp_val, 2)
 
