@@ -264,32 +264,16 @@ export default function HomePage() {
         }
         window.addEventListener('catalog-updated', handleCatalogUpdated)
 
-        // 2. Real-Time Server-Sent Events (SSE) Listener for live catalog & trending order sync
-        let eventSource = null
-        try {
-            eventSource = new EventSource('http://localhost:8000/api/orders/stream')
-            eventSource.onmessage = (event) => {
-                try {
-                    const parsed = JSON.parse(event.data)
-                    // If a new order is placed, or catalog is updated/published, refresh showcase
-                    if (
-                        parsed.type === 'catalog_update' ||
-                        parsed.type === 'new_order' ||
-                        parsed.type === 'status_update' ||
-                        parsed.type === 'stock_updated'
-                    ) {
-                        cachedHomeShowcase = null
-                        fetchShowcase()
-                    }
-                } catch (e) {}
+        // 2. Refresh showcase periodically when tab is active (preserves browser socket pool for fast uploads)
+        const pollInterval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchShowcase()
             }
-        } catch (e) {
-            console.warn('Showcase SSE listener error:', e)
-        }
+        }, 20000)
 
         return () => {
             window.removeEventListener('catalog-updated', handleCatalogUpdated)
-            if (eventSource) eventSource.close()
+            clearInterval(pollInterval)
         }
     }, [])
 

@@ -204,18 +204,23 @@ app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 sse_clients: List[asyncio.Queue] = []
 
 
-async def broadcast_order_event(event_type: str, data: dict):
-    """Pushes a live event to all connected admin browser tabs."""
+def broadcast_order_event_sync(event_type: str, data: dict):
+    """Synchronous non-blocking push to all SSE client queues using put_nowait."""
     message = json.dumps({"type": event_type, "order": data, "timestamp": datetime.utcnow().isoformat()})
     disconnected = []
-    for queue in sse_clients:
+    for queue in list(sse_clients):
         try:
-            await queue.put(message)
+            queue.put_nowait(message)
         except Exception:
             disconnected.append(queue)
     for q in disconnected:
         if q in sse_clients:
             sse_clients.remove(q)
+
+
+async def broadcast_order_event(event_type: str, data: dict):
+    """Pushes a live event to all connected admin and customer browser tabs."""
+    broadcast_order_event_sync(event_type, data)
 
 
 @app.get("/health")
@@ -1585,7 +1590,7 @@ def sanitize_medicine_image_url(url: str) -> str:
 
 
 @app.post("/api/inventory/upload")
-async def upload_distributor_inventory(
+def upload_distributor_inventory(
     file: UploadFile = File(...),
     mode: str = Form("merge"), # "merge" (default) or "replace"
     update_strategy: str = Form("keep_live"), # "keep_live" (default) or "send_to_drafts"
@@ -1841,7 +1846,7 @@ async def upload_distributor_inventory(
 
     # Broadcast real-time catalog update to storefront and admin panels
     try:
-        await broadcast_order_event("catalog_update", {
+        broadcast_order_event_sync("catalog_update", {
             "action": "csv_upload",
             "mode": mode_clean,
             "createdCount": created_count,
@@ -2180,7 +2185,7 @@ class PublishRequest(BaseModel):
 
 
 @app.post("/api/inventory/publish")
-async def publish_staged_medicines(
+def publish_staged_medicines(
     payload: PublishRequest,
     db: Session = Depends(get_db),
 ):
@@ -2194,7 +2199,7 @@ async def publish_staged_medicines(
 
     # Broadcast real-time catalog update to storefront
     try:
-        await broadcast_order_event("catalog_update", {
+        broadcast_order_event_sync("catalog_update", {
             "action": "publish",
             "publishedCount": count,
         })

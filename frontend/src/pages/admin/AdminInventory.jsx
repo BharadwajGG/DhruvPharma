@@ -216,7 +216,7 @@ export default function AdminInventory() {
         formData.append('publish_immediately', uploadPublishImmediately)
 
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 60000)
+        const timeoutId = setTimeout(() => controller.abort(), 120000)
 
         try {
             const res = await fetch('http://localhost:8000/api/inventory/upload', {
