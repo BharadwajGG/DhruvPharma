@@ -145,18 +145,30 @@ def generate_clinical_info(name: str, salt: str = "", category: str = "") -> Dic
             category, CATEGORY_DEFAULT_PROFILES["General Healthcare"]
         )
 
-    # Detect dosage form
+    # Detect real-time dynamic dosage form
     dosage_form = "Tablet"
-    if "SYP" in combined or "SYRUP" in combined:
+    if any(k in combined for k in ["POWDER", "POWD", "GRANULES", "SACHET", "CHURNA", "PROTEIN"]):
+        dosage_form = "Powder"
+    elif any(k in combined for k in ["SUSPENSION", "SUSP"]):
+        dosage_form = "Oral Suspension"
+    elif any(k in combined for k in ["SYP", "SYRUP", "LIQUID", "TONIC", "ELIXIR", "SOLUTION"]):
         dosage_form = "Syrup (Oral Liquid)"
-    elif "GEL" in combined or "OINTMENT" in combined or "CREAM" in combined:
-        dosage_form = "Topical Gel / Cream"
-    elif "CAP" in combined or "CAPSULE" in combined:
+    elif any(k in combined for k in ["GEL", "OINTMENT", "CREAM", "LOTION", "EMULGEL", "LINIMENT"]):
+        dosage_form = "Topical Cream / Gel"
+    elif any(k in combined for k in ["CAP", "CAPS", "CAPSULE", "SOFTGEL", "ROTACAP"]):
         dosage_form = "Capsule"
-    elif "DROP" in combined or "DROPS" in combined:
+    elif any(k in combined for k in ["DROP", "DROPS", "EYEDROP"]):
         dosage_form = "Drops"
-    elif "INJ" in combined:
-        dosage_form = "Injectable"
+    elif any(k in combined for k in ["INJ", "INJECTION", "IV", "INFUSION"]):
+        dosage_form = "Injection / IV Infusion"
+    elif any(k in combined for k in ["INHALER", "SPRAY", "RESPULES"]):
+        dosage_form = "Inhaler / Spray"
+    elif any(k in combined for k in ["TAB", "TABLET", "LOZENGE", "CHEWABLE"]):
+        dosage_form = "Tablet"
+    elif re.search(r"\b\d+\s*ML\b", combined):
+        dosage_form = "Syrup (Oral Liquid)"
+    elif re.search(r"\b\d+\s*(GM|G)\b", combined):
+        dosage_form = "Topical Cream / Gel"
 
     return {
         "composition": salt if salt and salt != "-BLANK-" else f"{name} Active Formulation",

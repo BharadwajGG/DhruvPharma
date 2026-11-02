@@ -14,8 +14,9 @@ export function parsePackInfo(name) {
     const volMatch = clean.match(/(\d+(?:\.\d+)?)\s*(ml|ltr|l)\b/i)
     if (volMatch) {
         const vol = parseFloat(volMatch[1])
+        const isSusp = /susp|suspension/i.test(clean)
         return {
-            packLabel: `Bottle of ${vol} ml`,
+            packLabel: `${isSusp ? 'Suspension' : 'Bottle'} of ${vol} ml`,
             unitCount: vol,
             unitType: 'ml',
         }
@@ -25,8 +26,9 @@ export function parsePackInfo(name) {
     const wtMatch = clean.match(/(\d+(?:\.\d+)?)\s*(gm|g|kg)\b/i)
     if (wtMatch) {
         const wt = parseFloat(wtMatch[1])
+        const isPowder = /powder|powd|granules|sachet/i.test(clean)
         return {
-            packLabel: `Tube of ${wt} g`,
+            packLabel: `${isPowder ? 'Jar' : 'Tube'} of ${wt} g`,
             unitCount: wt,
             unitType: 'g',
         }
@@ -70,4 +72,67 @@ export function parsePackInfo(name) {
         unitCount: 10,
         unitType: 'Units',
     }
+}
+
+/**
+ * Real-time dynamic medicine dosage form detector.
+ * Identifies whether a medicine is a Liquid, Powder, Capsule, Cream, Injection, or Tablet.
+ */
+export function detectDosageForm(name, salt = '', category = '') {
+    const combined = `${name || ''} ${salt || ''} ${category || ''}`.toUpperCase()
+
+    // 1. Powder / Granules / Sachets
+    if (/\b(POWDER|POWD|GRANULES|SACHET|SACHETS|CHURNA|PROTEIN)\b/i.test(combined)) {
+        return 'Powder'
+    }
+
+    // 2. Suspensions
+    if (/\b(SUSPENSION|SUSP)\b/i.test(combined)) {
+        return 'Oral Suspension'
+    }
+
+    // 3. Syrups & Liquids
+    if (/\b(SYRUP|SYP|LIQUID|TONIC|ELIXIR|EMULSION|SOLUTION|SOLN)\b/i.test(combined)) {
+        return 'Syrup (Oral Liquid)'
+    }
+
+    // 4. Capsules & Softgels
+    if (/\b(CAP|CAPS|CAPSULE|CAPSULES|SOFTGEL|SOFTGELS|ROTACAP|ROTACAPS)\b/i.test(combined)) {
+        return 'Capsule'
+    }
+
+    // 5. Creams, Gels & Ointments
+    if (/\b(GEL|CREAM|OINTMENT|OINT|LOTION|EMULGEL|LINIMENT|BALM|RUB)\b/i.test(combined)) {
+        return 'Topical Cream / Gel'
+    }
+
+    // 6. Drops (Eye, Ear, Oral, Nasal)
+    if (/\b(DROP|DROPS|EYEDROP|EARDROP)\b/i.test(combined)) {
+        return 'Drops'
+    }
+
+    // 7. Injections & IV Infusions
+    if (/\b(INJ|INJECTION|IV|INFUSION|VIAL|AMPOULE)\b/i.test(combined)) {
+        return 'Injection / IV Infusion'
+    }
+
+    // 8. Inhalers & Sprays
+    if (/\b(INHALER|SPRAY|RESPULES|AEROSOL|MDI|VAPORIZER)\b/i.test(combined)) {
+        return 'Inhaler / Spray'
+    }
+
+    // 9. Tablets & Lozenges
+    if (/\b(TAB|TABS|TABLET|TABLETS|PILL|PILLS|LOZENGE|LOZENGES|CHEWABLE)\b/i.test(combined)) {
+        return 'Tablet'
+    }
+
+    // 10. Volume / Weight based heuristics
+    if (/\b\d+\s*ML\b/i.test(combined)) {
+        return 'Syrup (Oral Liquid)'
+    }
+    if (/\b\d+\s*(GM|G|KG)\b/i.test(combined)) {
+        return 'Topical Cream / Gel'
+    }
+
+    return 'Tablet'
 }

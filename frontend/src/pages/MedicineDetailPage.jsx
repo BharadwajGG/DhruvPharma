@@ -4,7 +4,7 @@ import { useCart } from '../context/CartContext'
 import { useWishlist } from '../context/WishlistContext'
 import { useDelivery } from '../context/DeliveryContext'
 import MedicineImage from '../components/MedicineImage'
-import { parsePackInfo } from '../utils/packFormat'
+import { parsePackInfo, detectDosageForm } from '../utils/packFormat'
 import {
     Star,
     ShoppingCart,
@@ -12,6 +12,7 @@ import {
     Phone,
     Upload,
     Shield,
+    ShieldCheck,
     Truck,
     RotateCcw,
     AlertCircle,
@@ -23,6 +24,8 @@ import {
     Check,
     Loader2,
     FileText,
+    ZoomIn,
+    X,
 } from 'lucide-react'
 
 export default function MedicineDetailPage() {
@@ -35,6 +38,18 @@ export default function MedicineDetailPage() {
     const [isLoading, setIsLoading] = useState(true)
     const [qty, setQty] = useState(1)
     const [justAdded, setJustAdded] = useState(false)
+    const [isImageModalOpen, setIsImageModalOpen] = useState(false)
+
+    // Listen for Escape key to close image modal
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') setIsImageModalOpen(false)
+        }
+        if (isImageModalOpen) {
+            window.addEventListener('keydown', handleKeyDown)
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [isImageModalOpen])
 
     // Customer Reviews & Rating State
     const [reviews, setReviews] = useState([])
@@ -165,6 +180,7 @@ export default function MedicineDetailPage() {
     const requiresRx = Boolean(medicine.requires_rx || medicine.requiresPrescription)
 
     const pack = parsePackInfo(medicine.name)
+    const formLabel = detectDosageForm(medicine.name, medicine.salt, medicine.category)
     const perUnitPrice = pack.unitCount > 1 && price > 0 ? (price / pack.unitCount).toFixed(2) : null
 
     return (
@@ -184,9 +200,18 @@ export default function MedicineDetailPage() {
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8 mb-6">
                     <div className="flex flex-col sm:flex-row gap-8">
 
-                        {/* Image with Tier 2 Pack Shot & Tier 1 Vector Fallback */}
-                        <div className="rounded-2xl border border-gray-100 bg-white w-full sm:w-72 h-64 sm:h-72 flex items-center justify-center shrink-0 relative overflow-hidden shadow-xs">
-                            <MedicineImage medicine={medicine} aspectRatio="detail" className="rounded-2xl" />
+                        {/* Image with Tier 2 Pack Shot & Interactive In-Place Zoom */}
+                        <div
+                            onClick={() => setIsImageModalOpen(true)}
+                            className="rounded-2xl border border-gray-100 bg-white w-full sm:w-72 h-64 sm:h-72 flex items-center justify-center shrink-0 relative overflow-hidden shadow-xs cursor-pointer group"
+                            title="Click to view full image"
+                        >
+                            <MedicineImage medicine={medicine} aspectRatio="detail" className="rounded-2xl transition-transform duration-300 group-hover:scale-105" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center pointer-events-none">
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/75 backdrop-blur-xs text-white text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-md">
+                                    <ZoomIn size={13} /> Tap to Zoom
+                                </span>
+                            </div>
                             {discount > 0 && (
                                 <span className="absolute top-3 left-3 bg-emerald-600 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-xs z-10 tracking-wider">
                                     {discount}% OFF
@@ -213,8 +238,8 @@ export default function MedicineDetailPage() {
                                     <h1 className="text-2xl font-bold text-gray-900 mt-1">
                                         {medicine.name}
                                     </h1>
-                                    <p className="text-gray-500 text-sm mt-0.5">
-                                        Manufactured by <strong className="text-gray-700">{medicine.brand || medicine.manufacturer}</strong>
+                                    <p className="text-gray-700 font-bold text-sm tracking-wide mt-1">
+                                        {medicine.brand || medicine.manufacturer}
                                     </p>
                                 </div>
                             </div>
@@ -282,7 +307,7 @@ export default function MedicineDetailPage() {
                             </div>
 
                             <p className="text-xs text-gray-500 mb-5">
-                                Packaging: <strong className="text-gray-700">{pack.packLabel}</strong> · Form: <strong className="text-gray-700">{medicine.dosageForm || 'Tablet / Unit'}</strong>
+                                Packaging: <strong className="text-gray-700">{pack.packLabel}</strong> · Form: <strong className="text-gray-700">{formLabel}</strong>
                             </p>
 
                             {/* Quantity + Action Buttons */}
@@ -601,6 +626,65 @@ export default function MedicineDetailPage() {
                     </div>
                 </div>
             </div>
+
+            {/* ── Interactive In-Place Image Lightbox Modal ── */}
+            {isImageModalOpen && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => setIsImageModalOpen(false)}
+                    className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-100 relative p-6 flex flex-col items-center text-center animate-in zoom-in-95 duration-200"
+                    >
+                        {/* Close Button */}
+                        <button
+                            type="button"
+                            onClick={() => setIsImageModalOpen(false)}
+                            className="absolute top-4 right-4 p-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer z-10"
+                            title="Close (or press Esc)"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        {/* Top Badges */}
+                        <div className="flex items-center gap-2 mb-3">
+                            <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                {medicine.category}
+                            </span>
+                            <span className="text-[11px] font-bold text-gray-700 bg-gray-100 px-2.5 py-0.5 rounded-full">
+                                {medicine.brand || medicine.manufacturer}
+                            </span>
+                        </div>
+
+                        <h3 className="font-bold text-gray-900 text-base sm:text-lg mb-1 leading-snug">
+                            {medicine.name}
+                        </h3>
+                        {medicine.salt && (
+                            <p className="text-xs text-gray-500 italic mb-4 max-w-sm line-clamp-2">
+                                {medicine.salt}
+                            </p>
+                        )}
+
+                        {/* Enlarged Image Display */}
+                        <div className="w-full h-72 sm:h-80 bg-slate-50 rounded-2xl border border-gray-100 flex items-center justify-center overflow-hidden p-4 relative shadow-inner">
+                            <MedicineImage medicine={medicine} aspectRatio="detail" className="max-h-full max-w-full object-contain" />
+                        </div>
+
+                        {/* Modal Footer info */}
+                        <div className="mt-4 flex items-center justify-between w-full text-xs text-gray-500 pt-3 border-t border-gray-100">
+                            <span className="flex items-center gap-1.5 font-semibold text-emerald-700">
+                                <ShieldCheck size={14} /> 100% Genuine Pharmacy Certified
+                            </span>
+                            <span className="font-medium text-gray-500">
+                                {pack.packLabel} · {formLabel}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
