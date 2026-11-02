@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Search, Package, Truck, CheckCircle, Clock, MapPin, Phone, X, AlertCircle } from 'lucide-react'
 
 const STATUS_STEPS = [
@@ -27,14 +28,15 @@ const MOCK_ORDER = {
 }
 
 export default function OrderTrackingPage() {
-    const [orderId, setOrderId] = useState('')
+    const [searchParams] = useSearchParams()
+    const [orderId, setOrderId] = useState(() => searchParams.get('orderId') || searchParams.get('id') || '')
     const [order, setOrder]     = useState(null)
     const [notFound, setNotFound] = useState(false)
+    const [liveStatusNotice, setLiveStatusNotice] = useState('')
 
-    const handleSearch = async (e) => {
-        e.preventDefault()
+    const performTrack = async (targetId) => {
         setNotFound(false)
-        const cleanId = orderId.trim()
+        const cleanId = (targetId || '').trim()
         if (!cleanId) return
 
         try {
@@ -53,6 +55,53 @@ export default function OrderTrackingPage() {
             setNotFound(true)
         }
     }
+
+    const handleSearch = (e) => {
+        if (e && e.preventDefault) e.preventDefault()
+        performTrack(orderId)
+    }
+
+    // Auto-search if orderId was provided via URL
+    useEffect(() => {
+        const initialId = searchParams.get('orderId') || searchParams.get('id')
+        if (initialId) {
+            setOrderId(initialId)
+            performTrack(initialId)
+        }
+    }, [searchParams])
+
+    // Real-Time SSE listener for the currently tracked order
+    useEffect(() => {
+        if (!order) return
+        const trackedId = order.id || order.orderId
+        let eventSource = null
+
+        try {
+            eventSource = new EventSource('http://localhost:8000/api/orders/stream')
+            eventSource.onmessage = (event) => {
+                try {
+                    const parsed = JSON.parse(event.data)
+                    if (
+                        (parsed.type === 'status_update' || parsed.type === 'order_cancelled') &&
+                        parsed.order
+                    ) {
+                        const updated = parsed.order
+                        if (updated.id === trackedId || updated.orderId === trackedId) {
+                            setOrder((prev) => ({ ...prev, ...updated }))
+                            setLiveStatusNotice(`⚡ Live Update: Order is now ${updated.status?.replace('_', ' ').toUpperCase()}`)
+                            setTimeout(() => setLiveStatusNotice(''), 6000)
+                        }
+                    }
+                } catch (e) {}
+            }
+        } catch (err) {
+            console.warn('Real-time tracking connection error:', err)
+        }
+
+        return () => {
+            if (eventSource) eventSource.close()
+        }
+    }, [order?.id, order?.orderId])
 
     const currentStep = STATUS_STEPS.findIndex((s) => s.key === order?.status)
 
@@ -101,6 +150,14 @@ export default function OrderTrackingPage() {
                 {notFound && (
                     <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center text-sm text-red-600">
                         Order not found. Please check your Order ID or contact us at <strong>+91 98765 43210</strong>.
+                    </div>
+                )}
+
+                {/* ── Live Real-Time Notice ── */}
+                {liveStatusNotice && (
+                    <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl p-3 mb-5 text-center text-xs font-bold animate-pulse shadow-xs flex items-center justify-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                        <span>{liveStatusNotice}</span>
                     </div>
                 )}
 

@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from database import init_db, get_db, PrescriptionModel, MedicineModel, OrderModel, CallbackRequestModel, CouponModel, ReviewModel, UserProfileModel, SessionLocal
 from categorizer import categorize_medicine, calculate_selling_price, clean_text
@@ -1556,10 +1556,39 @@ def download_sample_csv():
     )
 
 
+# Auto-Sanitizer for Medicine Image URLs
+def sanitize_medicine_image_url(url: str) -> str:
+    """
+    Cleans and repairs common copy/paste or export glitches in medicine image URLs.
+    1. Fixes PharmEasy pattern: productsnowatermark?53572 -> productsnowatermark/53572
+    2. Fixes Truemeds pattern: TM-?smuth -> TM-smuth
+    3. Fixes stray ? inside file basename before valid extensions (.jpg, .jpeg, .png, .webp, .avif)
+    """
+    if not url:
+        return ""
+    clean = url.strip().strip("'\"")
+    if not (clean.startswith("http://") or clean.startswith("https://") or clean.startswith("/")):
+        return ""
+    # Fix Truemeds TM-?
+    clean = re.sub(r"TM-\?", "TM-", clean)
+    # Fix PharmEasy /productsnowatermark?123 -> /productsnowatermark/123
+    clean = re.sub(r"(/productsnowatermark)\?(\d+)", r"\1/\2", clean)
+    clean = re.sub(r"(/dam/[a-zA-Z0-9_-]+)\?(\d+)", r"\1/\2", clean)
+    # If a ? is used where a / or separator should be before a filename ending in an image extension
+    match = re.search(r"^(https?://[^?]+)\?([^?]+\.(?:jpg|jpeg|png|webp|avif))(\?.*)?$", clean, re.IGNORECASE)
+    if match:
+        base_path = match.group(1).rstrip("/")
+        file_part = match.group(2)
+        query_params = match.group(3) or ""
+        clean = f"{base_path}/{file_part}{query_params}"
+    return clean
+
+
 @app.post("/api/inventory/upload")
-def upload_distributor_inventory(
+async def upload_distributor_inventory(
     file: UploadFile = File(...),
     mode: str = Form("merge"), # "merge" (default) or "replace"
+    update_strategy: str = Form("keep_live"), # "keep_live" (default) or "send_to_drafts"
     publish_immediately: bool = Form(False),
     db: Session = Depends(get_db),
 ):
@@ -1720,12 +1749,11 @@ def upload_distributor_inventory(
 
         selling_price = calculate_selling_price(mrp=raw_mrp, cost_price=raw_rate, discount_pct=12.0)
 
-        # Image URL sanitization & validation (handles CDN links with params, webp, jpg, png)
+        # Image URL sanitization & validation (handles CDN links with params, webp, jpg, png, and repairs stray '?')
         raw_image_url = ""
         if image_idx is not None and image_idx < len(row):
             candidate_url = row[image_idx].strip().strip("'\"")
-            if candidate_url.startswith("http://") or candidate_url.startswith("https://") or candidate_url.startswith("/"):
-                raw_image_url = candidate_url
+            raw_image_url = sanitize_medicine_image_url(candidate_url)
 
         pack_shot_url = raw_image_url or resolve_brand_pack_shot(raw_name, raw_company)
 
@@ -1772,8 +1800,15 @@ def upload_distributor_inventory(
                 existing.storage = raw_storage
             if raw_hsn:
                 existing.hsn_code = raw_hsn
-            if publish_immediately:
+            existing.updated_at = datetime.utcnow()
+
+            # Handle publish status based on update strategy
+            if update_strategy == "send_to_drafts":
+                existing.is_published = False
+            elif publish_immediately:
                 existing.is_published = True
+            # else keep_live: preserves existing publication status
+
             updated_count += 1
         else:
             new_item = MedicineModel(
@@ -1803,6 +1838,18 @@ def upload_distributor_inventory(
             created_count += 1
 
     db.commit()
+
+    # Broadcast real-time catalog update to storefront and admin panels
+    try:
+        await broadcast_order_event("catalog_update", {
+            "action": "csv_upload",
+            "mode": mode_clean,
+            "createdCount": created_count,
+            "updatedCount": updated_count,
+            "totalParsed": total_parsed,
+        })
+    except Exception as e:
+        print(f"Error broadcasting catalog update: {e}")
 
     mode_label = "Fresh Start (Catalog Replaced)" if is_replace_mode else "Merged with Catalog"
     action_note = f"Previous {replaced_count} medicines replaced. " if is_replace_mode else ""
@@ -2133,7 +2180,7 @@ class PublishRequest(BaseModel):
 
 
 @app.post("/api/inventory/publish")
-def publish_staged_medicines(
+async def publish_staged_medicines(
     payload: PublishRequest,
     db: Session = Depends(get_db),
 ):
@@ -2141,8 +2188,18 @@ def publish_staged_medicines(
     if payload.item_ids and len(payload.item_ids) > 0:
         query = query.filter(MedicineModel.id.in_(payload.item_ids))
 
-    count = query.update({MedicineModel.is_published: True}, synchronize_session=False)
+    now_utc = datetime.utcnow()
+    count = query.update({MedicineModel.is_published: True, MedicineModel.updated_at: now_utc}, synchronize_session=False)
     db.commit()
+
+    # Broadcast real-time catalog update to storefront
+    try:
+        await broadcast_order_event("catalog_update", {
+            "action": "publish",
+            "publishedCount": count,
+        })
+    except Exception as e:
+        print(f"Error broadcasting publish catalog update: {e}")
 
     return {
         "success": True,
@@ -2227,14 +2284,19 @@ def get_customer_medicines(
 
 
 @app.get("/api/medicines/showcase")
-def get_medicines_showcase(db: Session = Depends(get_db)):
+def get_medicines_showcase(response: Response, db: Session = Depends(get_db)):
     """
     Returns data-driven collections for the storefront homepage:
     1. trending: dynamically aggregated from actual customer purchase order quantities.
        Fallback: top-rated high-frequency essentials.
-    2. new_launches: newest medicine items uploaded/published by admin from distributor CSVs.
+    2. new_launches: newest medicine items uploaded/published/restocked by admin from distributor CSVs.
        Fallback: latest catalog additions/restocks.
     """
+    # Prevent browser caching of showcase data for real-time customer-admin sync
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     # ── 1. TRENDING MEDICINES ──
     orders = db.query(OrderModel).filter(OrderModel.status != "cancelled").all()
     sales_map = {}  # { int(id): units_sold }
@@ -2242,12 +2304,12 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
         try:
             items = json.loads(o.items) if isinstance(o.items, str) else (o.items or [])
             for it in items:
-                m_id = it.get("id")
-                qty = it.get("qty", 1)
+                m_id = it.get("id") or it.get("medicine_id")
+                qty = it.get("qty") or it.get("quantity") or 1
                 if m_id:
                     try:
                         int_id = int(m_id)
-                        sales_map[int_id] = sales_map.get(int_id, 0) + qty
+                        sales_map[int_id] = sales_map.get(int_id, 0) + int(qty)
                     except (ValueError, TypeError):
                         pass
         except Exception:
@@ -2267,7 +2329,7 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
             if tid in med_by_id:
                 d = med_by_id[tid].to_dict()
                 d["units_sold"] = sales_map.get(tid, 0)
-                d["badge"] = "🔥 Trending Now"
+                d["badge"] = f"🔥 {sales_map[tid]} Bought Recently"
                 d["badge_type"] = "trending"
                 trending_list.append(d)
                 if len(trending_list) >= 8:
@@ -2283,7 +2345,11 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
         )
         if existing_ids:
             fallback_query = fallback_query.filter(~MedicineModel.id.in_(existing_ids))
-        fallback_meds = fallback_query.order_by(MedicineModel.stock_quantity.desc(), MedicineModel.id.asc()).limit(needed).all()
+        fallback_meds = fallback_query.order_by(
+            MedicineModel.stock_quantity.desc(),
+            func.coalesce(MedicineModel.updated_at, MedicineModel.created_at).desc(),
+            MedicineModel.id.desc()
+        ).limit(needed).all()
 
         for m in fallback_meds:
             d = m.to_dict()
@@ -2293,11 +2359,14 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
             trending_list.append(d)
 
     # ── 2. NEW LAUNCHES ──
-    # Directly query the 8 newest published medicines by created_at DESC, id DESC
+    # Query newest published medicines prioritized by latest updated/published time
     newest_meds = db.query(MedicineModel).filter(
         MedicineModel.is_published == True,
         or_(MedicineModel.is_visible == True, MedicineModel.is_visible == None),
-    ).order_by(MedicineModel.created_at.desc(), MedicineModel.id.desc()).limit(8).all()
+    ).order_by(
+        func.coalesce(MedicineModel.updated_at, MedicineModel.created_at).desc(),
+        MedicineModel.id.desc(),
+    ).limit(8).all()
 
     now = datetime.utcnow()
     thirty_days_ago = now - timedelta(days=30)
@@ -2305,7 +2374,8 @@ def get_medicines_showcase(db: Session = Depends(get_db)):
     new_launches_list = []
     for m in newest_meds:
         d = m.to_dict()
-        if m.created_at and m.created_at >= thirty_days_ago:
+        effective_time = m.updated_at or m.created_at
+        if effective_time and effective_time >= thirty_days_ago:
             d["badge"] = "✨ New Launch"
             d["badge_type"] = "new_arrival"
             d["is_new_arrival"] = True

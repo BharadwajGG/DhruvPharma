@@ -254,7 +254,43 @@ export default function HomePage() {
                 setIsLoadingShowcase(false)
             }
         }
+
         fetchShowcase()
+
+        // 1. Listen for local catalog updates dispatched from Admin tabs
+        const handleCatalogUpdated = () => {
+            cachedHomeShowcase = null
+            fetchShowcase()
+        }
+        window.addEventListener('catalog-updated', handleCatalogUpdated)
+
+        // 2. Real-Time Server-Sent Events (SSE) Listener for live catalog & trending order sync
+        let eventSource = null
+        try {
+            eventSource = new EventSource('http://localhost:8000/api/orders/stream')
+            eventSource.onmessage = (event) => {
+                try {
+                    const parsed = JSON.parse(event.data)
+                    // If a new order is placed, or catalog is updated/published, refresh showcase
+                    if (
+                        parsed.type === 'catalog_update' ||
+                        parsed.type === 'new_order' ||
+                        parsed.type === 'status_update' ||
+                        parsed.type === 'stock_updated'
+                    ) {
+                        cachedHomeShowcase = null
+                        fetchShowcase()
+                    }
+                } catch (e) {}
+            }
+        } catch (e) {
+            console.warn('Showcase SSE listener error:', e)
+        }
+
+        return () => {
+            window.removeEventListener('catalog-updated', handleCatalogUpdated)
+            if (eventSource) eventSource.close()
+        }
     }, [])
 
     // Smooth manual scroll handler for horizontal tracks

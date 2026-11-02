@@ -96,6 +96,7 @@ export default function AdminInventory() {
     const [pendingFile, setPendingFile] = useState(null)
     const [showUploadModeModal, setShowUploadModeModal] = useState(false)
     const [uploadMode, setUploadMode] = useState('merge') // 'merge' or 'replace'
+    const [mergeStrategy, setMergeStrategy] = useState('keep_live') // 'keep_live' or 'send_to_drafts'
     const [uploadPublishImmediately, setUploadPublishImmediately] = useState(false)
 
     // Add Medicine Modal State
@@ -195,6 +196,7 @@ export default function AdminInventory() {
         }
         setPendingFile(file)
         setUploadMode('merge')
+        setMergeStrategy('keep_live')
         setUploadPublishImmediately(false)
         setShowUploadModeModal(true)
     }
@@ -210,6 +212,7 @@ export default function AdminInventory() {
         const formData = new FormData()
         formData.append('file', pendingFile)
         formData.append('mode', uploadMode)
+        formData.append('update_strategy', mergeStrategy)
         formData.append('publish_immediately', uploadPublishImmediately)
 
         const controller = new AbortController()
@@ -230,7 +233,13 @@ export default function AdminInventory() {
 
             setUploadSummary(data.stats)
             setFeedbackMsg({ type: 'success', text: data.message })
-            if (uploadPublishImmediately || uploadMode === 'replace') {
+
+            // Broadcast real-time catalog update to any open storefront windows or components
+            try {
+                window.dispatchEvent(new CustomEvent('catalog-updated', { detail: data }))
+            } catch (e) {}
+
+            if (uploadPublishImmediately || (uploadMode === 'merge' && mergeStrategy === 'keep_live' && (!data.stats || data.stats.created === 0))) {
                 setActiveTab('live')
                 setLivePage(1)
             } else {
@@ -397,6 +406,9 @@ export default function AdminInventory() {
                     type: 'success',
                     text: `🚀 ${data.publishedCount} medicines have been published to the live patient storefront!`,
                 })
+                try {
+                    window.dispatchEvent(new CustomEvent('catalog-updated', { detail: data }))
+                } catch (e) {}
                 fetchStaged()
                 fetchLive()
                 setActiveTab('live')
@@ -1468,8 +1480,41 @@ export default function AdminInventory() {
                                             </span>
                                         </div>
                                         <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                            Keeps your existing medicines safe. Updates prices, stock, and clinical data for matching medicine codes. New medicines will be added as review drafts.
+                                            Keeps your existing medicines safe. Updates prices, stock, real pack photos, and clinical data for matching medicines.
                                         </p>
+                                        {uploadMode === 'merge' && (
+                                            <div className="mt-3 pt-3 border-t border-emerald-200/60 space-y-2 text-left" onClick={(e) => e.stopPropagation()}>
+                                                <p className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
+                                                    Handling Existing Catalog Medicines:
+                                                </p>
+                                                <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white/90 border border-emerald-200 cursor-pointer hover:bg-white transition-all">
+                                                    <input
+                                                        type="radio"
+                                                        name="mergeSubStrategy"
+                                                        checked={mergeStrategy === 'keep_live'}
+                                                        onChange={() => setMergeStrategy('keep_live')}
+                                                        className="mt-0.5 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                    />
+                                                    <div className="text-xs">
+                                                        <span className="font-bold text-slate-800">Keep Live in Store (Recommended)</span>
+                                                        <p className="text-[11px] text-slate-500 leading-normal">Updates rates, stock & photos directly on live store shelves. Only brand-new medicines go to Drafts.</p>
+                                                    </div>
+                                                </label>
+                                                <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white/90 border border-emerald-200 cursor-pointer hover:bg-white transition-all">
+                                                    <input
+                                                        type="radio"
+                                                        name="mergeSubStrategy"
+                                                        checked={mergeStrategy === 'send_to_drafts'}
+                                                        onChange={() => setMergeStrategy('send_to_drafts')}
+                                                        className="mt-0.5 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                    />
+                                                    <div className="text-xs">
+                                                        <span className="font-bold text-slate-800">Send All to Drafts for Review</span>
+                                                        <p className="text-[11px] text-slate-500 leading-normal">Moves both updated and new medicines to Drafts so you can inspect all changes before publishing.</p>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
