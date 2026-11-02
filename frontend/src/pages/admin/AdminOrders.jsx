@@ -1180,102 +1180,103 @@ export default function AdminOrders() {
                     </div>
                 )}
 
-                {/* ── Orders Table ── */}
+                {/* ── Orders Table (Compact, Zero Horizontal Scroll) ── */}
                 <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50/90 border-b border-slate-200 text-[10px] text-slate-600 font-bold uppercase tracking-wider">
-                                    <th className="py-3.5 px-3 text-center w-10">
-                                        <input
-                                            type="checkbox"
-                                            checked={displayed.length > 0 && displayed.every((o) => selectedOrderIds.includes(o.id || o.orderId))}
-                                            onChange={toggleSelectAll}
-                                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                                            title="Select all displayed orders"
-                                        />
-                                    </th>
-                                    <th className="py-3.5 px-4 min-w-[120px]">Order ID</th>
-                                    <th className="py-3.5 px-4 min-w-[210px]">Patient / Customer</th>
-                                    <th className="py-3.5 px-4 min-w-[220px]">Ordered Medicines</th>
-                                    <th className="py-3.5 px-4 min-w-[180px]">Delivery Window</th>
-                                    <th className="py-3.5 px-4 text-right min-w-[110px]">Amount</th>
-                                    <th className="py-3.5 px-4 text-center min-w-[140px]">Status</th>
-                                    <th className="py-3.5 px-4 text-center min-w-[180px]">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {displayed.map((o) => {
-                                    const cfg = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending
-                                    const Icon = cfg.icon
-                                    const isEditingThis = editingDeliveryTimeId === (o.id || o.orderId)
-                                    const isRowSelected = selectedOrderIds.includes(o.id || o.orderId)
-                                    const cleanPhone = (o.phone || '').replace(/\D/g, '')
+                    <table className="w-full text-xs text-left border-collapse table-auto">
+                        <thead>
+                            <tr className="bg-slate-50/90 border-b border-slate-200 text-[10px] text-slate-600 font-bold uppercase tracking-wider">
+                                <th className="py-3.5 px-3 text-center w-10">
+                                    <input
+                                        type="checkbox"
+                                        checked={displayed.length > 0 && displayed.every((o) => selectedOrderIds.includes(o.id || o.orderId))}
+                                        onChange={toggleSelectAll}
+                                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                        title="Select all displayed orders"
+                                    />
+                                </th>
+                                <th className="py-3.5 px-4 w-[28%]">Order &amp; Customer</th>
+                                <th className="py-3.5 px-4 w-[34%]">Ordered Medicines &amp; Delivery</th>
+                                <th className="py-3.5 px-4 text-right w-[12%]">Amount</th>
+                                <th className="py-3.5 px-4 text-center w-[13%]">Status</th>
+                                <th className="py-3.5 px-4 text-center w-[13%]">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {displayed.map((o) => {
+                                const cfg = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending
+                                const Icon = cfg.icon
+                                const isEditingThis = editingDeliveryTimeId === (o.id || o.orderId)
+                                const isRowSelected = selectedOrderIds.includes(o.id || o.orderId)
+                                const cleanPhone = (o.phone || '').replace(/\D/g, '')
 
-                                    return (
-                                        <tr key={o.id || o.orderId} className={`hover:bg-slate-50/80 transition-colors ${isRowSelected ? 'bg-emerald-50/30' : ''}`}>
-                                            <td className="py-3.5 px-3 text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isRowSelected}
-                                                    onChange={() => toggleSelectRow(o.id || o.orderId)}
-                                                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                                                />
-                                            </td>
-                                            <td className="py-3.5 px-4 whitespace-nowrap">
+                                return (
+                                    <tr key={o.id || o.orderId} className={`hover:bg-slate-50/80 transition-colors ${isRowSelected ? 'bg-emerald-50/30' : ''}`}>
+                                        {/* Checkbox */}
+                                        <td className="py-3.5 px-3 text-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={isRowSelected}
+                                                onChange={() => toggleSelectRow(o.id || o.orderId)}
+                                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                            />
+                                        </td>
+
+                                        {/* Order & Customer */}
+                                        <td className="py-3.5 px-4">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[11px]">
-                                                    {o.id || o.orderId}
+                                                    #{o.id || o.orderId}
                                                 </span>
-                                                <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                                                <span className="text-[10px] text-slate-400 font-medium">
                                                     {o.date || o.createdAt || 'Recent'}
-                                                </p>
-                                            </td>
-                                            <td className="py-3.5 px-4">
-                                                <p className="font-bold text-slate-900 text-xs">{o.patient || o.customerName}</p>
-                                                <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 flex-wrap">
-                                                    {o.phone ? (
-                                                        <a
-                                                            href={`tel:${o.phone}`}
-                                                            className="hover:text-emerald-700 hover:underline inline-flex items-center gap-1 font-semibold text-slate-700"
-                                                            title="Click to call customer"
-                                                        >
-                                                            <Phone size={10} className="text-emerald-600" />
-                                                            <span>{o.phone}</span>
-                                                        </a>
-                                                    ) : (
-                                                        <span>No phone</span>
-                                                    )}
-                                                    <span>·</span>
-                                                    <span className="inline-flex items-center gap-0.5 text-slate-700 font-semibold bg-slate-100 px-1.5 py-0.2 rounded text-[10px]">
-                                                        <MapPin size={10} className="text-emerald-700" />
-                                                        {o.district || 'Nandurbar'} {o.pincode ? `(${o.pincode})` : ''}
-                                                    </span>
-                                                </div>
-                                            </td>
+                                                </span>
+                                            </div>
+                                            <p className="font-bold text-slate-900 text-xs mt-1 truncate" title={o.patient || o.customerName}>
+                                                {o.patient || o.customerName}
+                                            </p>
+                                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5 flex-wrap">
+                                                {o.phone ? (
+                                                    <a
+                                                        href={`tel:${o.phone}`}
+                                                        className="hover:text-emerald-700 hover:underline inline-flex items-center gap-1 font-semibold text-slate-700"
+                                                        title="Click to call customer"
+                                                    >
+                                                        <Phone size={10} className="text-emerald-600" />
+                                                        <span>{o.phone}</span>
+                                                    </a>
+                                                ) : (
+                                                    <span>No phone</span>
+                                                )}
+                                                <span>·</span>
+                                                <span className="inline-flex items-center gap-0.5 text-slate-700 font-semibold bg-slate-100 px-1.5 py-0.2 rounded text-[10px]">
+                                                    <MapPin size={9} className="text-emerald-700" />
+                                                    {o.district || 'Nandurbar'} {o.pincode ? `(${o.pincode})` : ''}
+                                                </span>
+                                            </div>
+                                        </td>
 
-                                            {/* Ordered Medicines Summary */}
-                                            <td className="py-3.5 px-4">
-                                                {Array.isArray(o.items) && o.items.length > 0 ? (
-                                                    <div className="space-y-1">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.2 rounded-md border border-emerald-200">
-                                                                {o.items.length} {o.items.length === 1 ? 'Medicine' : 'Medicines'}
-                                                            </span>
-                                                        </div>
-                                                        <p
-                                                            className="text-[11px] font-semibold text-slate-800 line-clamp-1 truncate max-w-[240px]"
+                                        {/* Ordered Medicines & Delivery Window */}
+                                        <td className="py-3.5 px-4">
+                                            {Array.isArray(o.items) && o.items.length > 0 ? (
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.2 rounded-md border border-emerald-200">
+                                                            {o.items.length} {o.items.length === 1 ? 'Item' : 'Items'}
+                                                        </span>
+                                                        <span
+                                                            className="text-[11px] font-semibold text-slate-800 truncate max-w-[280px]"
                                                             title={o.items.map((i) => `${i.name || 'Medicine'} (x${i.qty || i.quantity || 1})`).join(', ')}
                                                         >
                                                             {o.items.map((i) => `${i.name || 'Medicine'} (x${i.qty || i.quantity || 1})`).join(', ')}
-                                                        </p>
+                                                        </span>
                                                     </div>
-                                                ) : (
-                                                    <span className="text-slate-400 italic text-[11px]">Direct Prescription / Order</span>
-                                                )}
-                                            </td>
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-400 italic text-[11px]">Direct Prescription / Order</span>
+                                            )}
 
-                                            {/* Expected Delivery Date/Time Control */}
-                                            <td className="py-3.5 px-4">
+                                            {/* Delivery Window (Directly under medicines) */}
+                                            <div className="mt-1 pt-1 border-t border-slate-100/80">
                                                 {isEditingThis ? (
                                                     <div className="flex items-center gap-1.5">
                                                         <input
@@ -1283,7 +1284,7 @@ export default function AdminOrders() {
                                                             value={tempDeliveryTime}
                                                             onChange={(e) => setTempDeliveryTime(e.target.value)}
                                                             placeholder="e.g. Expected in 3–4 Days"
-                                                            className="px-2 py-1 border border-emerald-400 rounded-lg text-xs outline-none bg-white w-44 font-medium shadow-xs"
+                                                            className="px-2 py-0.5 border border-emerald-400 rounded-lg text-xs outline-none bg-white w-40 font-medium shadow-xs"
                                                             autoFocus
                                                         />
                                                         <button
@@ -1291,14 +1292,14 @@ export default function AdminOrders() {
                                                             className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 cursor-pointer"
                                                             title="Save Delivery Time"
                                                         >
-                                                            <Check size={12} />
+                                                            <Check size={11} />
                                                         </button>
                                                         <button
                                                             onClick={() => setEditingDeliveryTimeId(null)}
                                                             className="p-1 bg-slate-200 text-slate-600 rounded hover:bg-slate-300 cursor-pointer"
                                                             title="Cancel"
                                                         >
-                                                            <X size={12} />
+                                                            <X size={11} />
                                                         </button>
                                                     </div>
                                                 ) : (
@@ -1307,98 +1308,99 @@ export default function AdminOrders() {
                                                              setEditingDeliveryTimeId(o.id || o.orderId)
                                                              setTempDeliveryTime(o.expectedDelivery || 'Expected in 3–4 Days')
                                                         }}
-                                                        className="group cursor-pointer flex items-center gap-1.5 text-slate-700 hover:text-emerald-700 transition-colors"
+                                                        className="group cursor-pointer inline-flex items-center gap-1.5 text-slate-600 hover:text-emerald-700 transition-colors"
                                                         title="Click to edit expected delivery time"
                                                     >
-                                                        <Truck size={13} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
-                                                        <span className="font-semibold underline decoration-dotted decoration-slate-300 text-xs">
+                                                        <Truck size={12} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
+                                                        <span className="font-semibold underline decoration-dotted decoration-slate-300 text-[11px]">
                                                             {o.expectedDelivery || 'Expected in 3–4 Days'}
                                                         </span>
                                                     </div>
                                                 )}
-                                            </td>
+                                            </div>
+                                        </td>
 
-                                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                                                <p className="font-black text-slate-900 text-xs">₹{Number(o.amount || o.totalAmount || 0).toLocaleString('en-IN')}</p>
-                                                <span className="inline-block mt-0.5 text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                                                    {o.paymentMethod || 'COD'}
-                                                </span>
-                                            </td>
+                                        {/* Amount */}
+                                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                            <p className="font-black text-slate-900 text-xs">₹{Number(o.amount || o.totalAmount || 0).toLocaleString('en-IN')}</p>
+                                            <span className="inline-block mt-0.5 text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                                {o.paymentMethod || 'COD'}
+                                            </span>
+                                        </td>
 
-                                            {/* Order Status Badge (Safe, No accidental changes) */}
-                                            <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border shadow-2xs ${cfg.style}`}>
-                                                    <Icon size={13} /> {cfg.label}
-                                                </span>
-                                            </td>
+                                        {/* Order Status Badge (Safe, No accidental changes) */}
+                                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                                            <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border shadow-2xs ${cfg.style}`}>
+                                                <Icon size={12} /> {cfg.label}
+                                            </span>
+                                        </td>
 
-                                            {/* Action Buttons: View, Bill, WhatsApp & Delete */}
-                                            <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                    <button
-                                                        onClick={() => setSelected(o)}
-                                                        className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                                                        title="View full order details"
+                                        {/* Action Buttons: View, Bill, WhatsApp & Delete */}
+                                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                                            <div className="flex items-center justify-center gap-1">
+                                                <button
+                                                    onClick={() => setSelected(o)}
+                                                    className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                                                    title="View full order details"
+                                                >
+                                                    <Eye size={12} /> View
+                                                </button>
+                                                <button
+                                                    onClick={() => setSelectedInvoiceOrder(o)}
+                                                    className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                                                    title="Print GST Tax Bill"
+                                                >
+                                                    <Printer size={12} /> Bill
+                                                </button>
+                                                {cleanPhone && (
+                                                    <a
+                                                        href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(`Hello ${o.patient || o.customerName || 'Customer'}, regarding your Dhruv Pharma Order #${o.id || o.orderId}...`)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg border border-transparent hover:border-emerald-200 transition-colors cursor-pointer"
+                                                        title="Chat on WhatsApp"
                                                     >
-                                                        <Eye size={12} /> View
-                                                    </button>
+                                                        <MessageSquare size={13} />
+                                                    </a>
+                                                )}
+                                                {o.status !== 'cancelled' && (
                                                     <button
-                                                        onClick={() => setSelectedInvoiceOrder(o)}
-                                                        className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                                                        title="Print GST Tax Bill"
+                                                        onClick={() => {
+                                                            setOrderToCancel(o)
+                                                            setAdminCancelModalOpen(true)
+                                                        }}
+                                                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                                        title="Emergency Cancel Order by Admin"
                                                     >
-                                                        <Printer size={12} /> Bill
+                                                        <X size={13} className="text-rose-500" />
                                                     </button>
-                                                    {cleanPhone && (
-                                                        <a
-                                                            href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(`Hello ${o.patient || o.customerName || 'Customer'}, regarding your Dhruv Pharma Order #${o.id || o.orderId}...`)}`}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg border border-transparent hover:border-emerald-200 transition-colors cursor-pointer"
-                                                            title="Chat with customer on WhatsApp"
-                                                        >
-                                                            <MessageSquare size={13} />
-                                                        </a>
-                                                    )}
-                                                    {o.status !== 'cancelled' && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setOrderToCancel(o)
-                                                                setAdminCancelModalOpen(true)
-                                                            }}
-                                                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                                                            title="Emergency Cancel Order by Admin"
-                                                        >
-                                                            <X size={13} className="text-rose-500" />
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => handleDeleteOrder(o.id || o.orderId)}
-                                                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                                                        title="Delete order"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-
-                                {displayed.length === 0 && (
-                                    <tr>
-                                        <td colSpan={8} className="text-center py-12 text-slate-400">
-                                            <Package size={36} className="mx-auto mb-2 text-slate-300" />
-                                            <p className="font-bold text-slate-600 text-sm">No customer orders found.</p>
-                                            <p className="text-xs text-slate-400 mt-0.5">
-                                                {search ? 'Try adjusting your search query or town filter.' : 'When patients place orders online or over phone, they will appear here.'}
-                                            </p>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDeleteOrder(o.id || o.orderId)}
+                                                    className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                                    title="Delete order"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                )
+                            })}
+
+                            {displayed.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="text-center py-12 text-slate-400">
+                                        <Package size={36} className="mx-auto mb-2 text-slate-300" />
+                                        <p className="font-bold text-slate-600 text-sm">No customer orders found.</p>
+                                        <p className="text-xs text-slate-400 mt-0.5">
+                                            {search ? 'Try adjusting your search query or town filter.' : 'When patients place orders online or over phone, they will appear here.'}
+                                        </p>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
 
                 {/* ── Order Detail & Prescription Modal ── */}
