@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import MedicineImage from '../components/MedicineImage'
+import { parsePackInfo } from '../utils/packFormat'
 import MarketingBannerCarousel from '../components/MarketingBannerCarousel'
 import {
     Upload,
@@ -107,8 +108,11 @@ function ShowcaseMedicineCard({ medicine, badgeLabel, badgeType }) {
 
     const mrp = medicine.mrp || 0
     const price = medicine.sellingPrice || medicine.price || 0
-    const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : 0
+    const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : (medicine.discount || medicine.discountPct || 0)
     const requiresRx = Boolean(medicine.requires_rx || medicine.requiresPrescription)
+
+    const pack = parsePackInfo(medicine.name)
+    const perUnitPrice = pack.unitCount > 1 && price > 0 ? (price / pack.unitCount).toFixed(2) : null
 
     const handleAdd = (e) => {
         e.preventDefault()
@@ -167,10 +171,17 @@ function ShowcaseMedicineCard({ medicine, badgeLabel, badgeType }) {
                     <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-1 group-hover:text-blue-700 transition-colors">
                         {medicine.name}
                     </h3>
-                    <p className="text-xs text-gray-500 mb-2 truncate">{medicine.brand || medicine.manufacturer}</p>
+                    <p className="text-xs text-gray-500 font-medium truncate mb-1">{medicine.brand || medicine.manufacturer}</p>
+
+                    {/* Pack Size Pill Badge */}
+                    <div className="mb-2">
+                        <span className="inline-block bg-slate-100 text-gray-600 text-[11px] font-medium px-2 py-0.5 rounded">
+                            {pack.packLabel}
+                        </span>
+                    </div>
 
                     {/* Ratings */}
-                    <div className="flex items-center gap-1 mb-3">
+                    <div className="flex items-center gap-1 mb-2">
                         <div className="flex">
                             {[...Array(5)].map((_, i) => (
                                 <Star
@@ -185,22 +196,44 @@ function ShowcaseMedicineCard({ medicine, badgeLabel, badgeType }) {
                 </div>
 
                 <div>
-                    {/* Price & Add to Cart Action */}
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-50">
-                        <div>
-                            <div className="flex items-baseline gap-1.5">
-                                <span className="text-base font-black text-gray-900">₹{price}</span>
-                                {mrp > price && (
-                                    <span className="text-xs text-gray-400 line-through">₹{mrp}</span>
+                    {/* Pricing matching reference image & Add to Cart Action */}
+                    <div className="flex items-end justify-between gap-2 pt-2 border-t border-gray-100">
+                        <div className="min-w-0">
+                            {/* Strikethrough MRP & Bold Green Discount */}
+                            <div className="flex items-center gap-1.5 text-xs leading-none mb-1 flex-wrap">
+                                {mrp > price ? (
+                                    <>
+                                        <span className="text-gray-500 text-[11px]">
+                                            MRP <span className="line-through text-gray-400 font-medium">₹{mrp}</span>
+                                        </span>
+                                        {discount > 0 && (
+                                            <span className="text-emerald-700 font-bold text-xs">
+                                                {discount}% OFF
+                                            </span>
+                                        )}
+                                    </>
+                                ) : (
+                                    <span className="text-gray-500 text-[11px]">MRP ₹{mrp || price}</span>
                                 )}
                             </div>
-                            <span className="text-[10px] text-gray-400 block leading-none">GST incl.</span>
+
+                            {/* Bold Selling Price (Rate) */}
+                            <div className="text-xl sm:text-2xl font-black text-gray-900 leading-none">
+                                ₹{price}
+                            </div>
+
+                            {/* Per-Unit Price Beneath */}
+                            {perUnitPrice && (
+                                <div className="text-[11px] text-gray-500 mt-1 font-normal leading-tight">
+                                    ₹{perUnitPrice}/{pack.unitType}
+                                </div>
+                            )}
                         </div>
 
                         <button
                             type="button"
                             onClick={handleAdd}
-                            className={`btn-tap inline-flex items-center justify-center gap-1 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs cursor-pointer ${
+                            className={`btn-tap inline-flex items-center justify-center gap-1 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs cursor-pointer shrink-0 ${
                                 justAdded
                                     ? 'bg-emerald-600 text-white'
                                     : 'bg-blue-600 hover:bg-blue-700 text-white'

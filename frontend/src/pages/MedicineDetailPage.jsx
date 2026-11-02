@@ -4,6 +4,7 @@ import { useCart } from '../context/CartContext'
 import { useWishlist } from '../context/WishlistContext'
 import { useDelivery } from '../context/DeliveryContext'
 import MedicineImage from '../components/MedicineImage'
+import { parsePackInfo } from '../utils/packFormat'
 import {
     Star,
     ShoppingCart,
@@ -160,8 +161,11 @@ export default function MedicineDetailPage() {
 
     const mrp = medicine.mrp || 0
     const price = medicine.sellingPrice || medicine.price || 0
-    const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : 0
+    const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : (medicine.discount || medicine.discountPct || 0)
     const requiresRx = Boolean(medicine.requires_rx || medicine.requiresPrescription)
+
+    const pack = parsePackInfo(medicine.name)
+    const perUnitPrice = pack.unitCount > 1 && price > 0 ? (price / pack.unitCount).toFixed(2) : null
 
     return (
         <div className="bg-gray-50 min-h-screen py-8 px-4">
@@ -184,7 +188,7 @@ export default function MedicineDetailPage() {
                         <div className="rounded-2xl border border-gray-100 bg-white w-full sm:w-72 h-64 sm:h-72 flex items-center justify-center shrink-0 relative overflow-hidden shadow-xs">
                             <MedicineImage medicine={medicine} aspectRatio="detail" className="rounded-2xl" />
                             {discount > 0 && (
-                                <span className="absolute top-3 left-3 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-xs z-10">
+                                <span className="absolute top-3 left-3 bg-emerald-600 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-xs z-10 tracking-wider">
                                     {discount}% OFF
                                 </span>
                             )}
@@ -215,6 +219,13 @@ export default function MedicineDetailPage() {
                                 </div>
                             </div>
 
+                            {/* Pack Badge */}
+                            <div className="my-2">
+                                <span className="inline-block bg-slate-100 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-md">
+                                    {pack.packLabel}
+                                </span>
+                            </div>
+
                             {/* Active Chemical Composition */}
                             <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 my-3">
                                 <p className="text-[11px] font-bold text-blue-800 uppercase tracking-wide mb-0.5">
@@ -236,19 +247,42 @@ export default function MedicineDetailPage() {
                                 <span className="text-xs text-gray-400">({medicine.reviews || 85} verified reviews)</span>
                             </div>
 
-                            {/* Price */}
-                            <div className="flex items-baseline gap-3 my-4">
-                                <span className="text-3xl font-extrabold text-gray-900">₹{price}</span>
-                                {mrp > price && (
-                                    <span className="text-gray-400 text-lg line-through">₹{mrp}</span>
-                                )}
-                                <span className="text-xs text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded-md border border-green-200">
-                                    Inclusive of all taxes
-                                </span>
+                            {/* Price Presentation - Reference Image Layout */}
+                            <div className="my-4 pt-2 border-t border-gray-100">
+                                {/* MRP with cut line & High-converting discount */}
+                                <div className="flex items-center gap-2 mb-1">
+                                    {mrp > price ? (
+                                        <>
+                                            <span className="text-sm text-gray-500">
+                                                MRP <span className="line-through text-gray-400 font-medium">₹{mrp}</span>
+                                            </span>
+                                            {discount > 0 && (
+                                                <span className="text-emerald-700 font-extrabold text-sm sm:text-base bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                                    {discount}% OFF
+                                                </span>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <span className="text-sm text-gray-500">MRP ₹{mrp || price}</span>
+                                    )}
+                                </div>
+
+                                {/* Bold Selling Price (Rate) */}
+                                <div className="flex items-baseline gap-3 flex-wrap">
+                                    <span className="text-3xl sm:text-4xl font-black text-gray-900">₹{price}</span>
+                                    {perUnitPrice && (
+                                        <span className="text-xs sm:text-sm text-gray-500 font-medium">
+                                            ₹{perUnitPrice}/{pack.unitType}
+                                        </span>
+                                    )}
+                                    <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                        Inclusive of all taxes
+                                    </span>
+                                </div>
                             </div>
 
                             <p className="text-xs text-gray-500 mb-5">
-                                Pack size: <strong className="text-gray-700">{medicine.packSize || '10 units per pack'}</strong> · Form: <strong className="text-gray-700">{medicine.dosageForm || 'Tablet'}</strong>
+                                Packaging: <strong className="text-gray-700">{pack.packLabel}</strong> · Form: <strong className="text-gray-700">{medicine.dosageForm || 'Tablet / Unit'}</strong>
                             </p>
 
                             {/* Quantity + Action Buttons */}

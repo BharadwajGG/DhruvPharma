@@ -167,15 +167,26 @@ export default function WishlistPage() {
 
                                     {/* Price and CTA */}
                                     <div className="pt-2 border-t border-gray-100 space-y-2.5">
-                                        <div className="flex items-baseline gap-2">
-                                            <span className="text-base font-extrabold text-gray-900">
+                                        <div>
+                                            <div className="flex items-center gap-1.5 text-xs leading-none mb-1 flex-wrap">
+                                                {mrp > price ? (
+                                                    <>
+                                                        <span className="text-gray-500 text-[11px]">
+                                                            MRP <span className="line-through text-gray-400 font-medium">₹{mrp}</span>
+                                                        </span>
+                                                        {discount > 0 && (
+                                                            <span className="text-emerald-700 font-bold text-xs">
+                                                                {discount}% OFF
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <span className="text-gray-500 text-[11px]">MRP ₹{mrp || price}</span>
+                                                )}
+                                            </div>
+                                            <div className="text-lg font-black text-gray-900 leading-none">
                                                 ₹{price}
-                                            </span>
-                                            {mrp > price && (
-                                                <span className="text-xs text-gray-400 line-through">
-                                                    ₹{mrp}
-                                                </span>
-                                            )}
+                                            </div>
                                         </div>
 
                                         <div className="flex items-center gap-2">

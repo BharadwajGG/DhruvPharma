@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import { useWishlist } from '../context/WishlistContext'
 import MedicineImage from '../components/MedicineImage'
+import { parsePackInfo } from '../utils/packFormat'
 import {
     Search,
     Filter,
@@ -83,9 +84,12 @@ const MedicineCard = memo(function MedicineCard({ medicine }) {
 
     const mrp = medicine.mrp || 0
     const price = medicine.price || medicine.sellingPrice || 0
-    const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : 0
+    const discount = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : (medicine.discount || medicine.discountPct || 0)
     const requiresRx = medicine.requires_rx || medicine.requiresPrescription
     const isSaved = isInWishlist(medicine.id)
+
+    const pack = useMemo(() => parsePackInfo(medicine.name), [medicine.name])
+    const perUnitPrice = pack.unitCount > 1 && price > 0 ? (price / pack.unitCount).toFixed(2) : null
 
     const handleAdd = (e) => {
         e.stopPropagation()
@@ -174,10 +178,19 @@ const MedicineCard = memo(function MedicineCard({ medicine }) {
                         </p>
                     )}
 
-                    <p className="text-xs text-gray-400 mb-2">{medicine.brand || medicine.manufacturer || 'Dhruv Certified'}</p>
+                    <p className="text-xs text-gray-500 font-medium truncate mb-1">
+                        {medicine.brand || medicine.manufacturer || 'Dhruv Certified'}
+                    </p>
+
+                    {/* Pack Size Pill Badge (matching reference layout) */}
+                    <div className="mb-2">
+                        <span className="inline-block bg-slate-100 text-gray-600 text-[11px] font-medium px-2 py-0.5 rounded">
+                            {pack.packLabel}
+                        </span>
+                    </div>
 
                     {/* Ratings */}
-                    <div className="flex items-center gap-1 mb-3">
+                    <div className="flex items-center gap-1 mb-2">
                         <div className="flex">
                             {[...Array(5)].map((_, i) => (
                                 <Star
@@ -191,22 +204,44 @@ const MedicineCard = memo(function MedicineCard({ medicine }) {
                     </div>
                 </div>
 
-                {/* Pricing & Add To Cart Button */}
-                <div className="pt-2 border-t border-gray-50 flex items-center justify-between gap-2">
-                    <div>
-                        <div className="flex items-baseline gap-1.5">
-                            <span className="text-base font-black text-gray-900">₹{price}</span>
-                            {mrp > price && (
-                                <span className="text-xs text-gray-400 line-through">₹{mrp}</span>
+                {/* Pricing & Add To Cart Button - Exactly matching reference image */}
+                <div className="pt-2 border-t border-gray-100 flex items-end justify-between gap-2">
+                    <div className="min-w-0">
+                        {/* MRP with cut line & High-converting green discount */}
+                        <div className="flex items-center gap-1.5 text-xs leading-none mb-1 flex-wrap">
+                            {mrp > price ? (
+                                <>
+                                    <span className="text-gray-500 text-[11px]">
+                                        MRP <span className="line-through text-gray-400 font-medium">₹{mrp}</span>
+                                    </span>
+                                    {discount > 0 && (
+                                        <span className="text-emerald-700 font-bold text-xs">
+                                            {discount}% OFF
+                                        </span>
+                                    )}
+                                </>
+                            ) : (
+                                <span className="text-gray-500 text-[11px]">MRP ₹{mrp || price}</span>
                             )}
                         </div>
-                        <span className="text-[10px] text-gray-400 block leading-none">GST included</span>
+
+                        {/* Bold Selling Price (Rate) */}
+                        <div className="text-xl sm:text-2xl font-black text-gray-900 leading-none">
+                            ₹{price}
+                        </div>
+
+                        {/* Per-Unit Price beneath */}
+                        {perUnitPrice && (
+                            <div className="text-[11px] text-gray-500 mt-1 font-normal leading-tight">
+                                ₹{perUnitPrice}/{pack.unitType}
+                            </div>
+                        )}
                     </div>
 
                     {medicine.inStock ? (
                         <button
                             onClick={handleAdd}
-                            className={`btn-tap inline-flex items-center justify-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer ${
+                            className={`btn-tap inline-flex items-center justify-center gap-1 text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs cursor-pointer shrink-0 ${
                                 justAdded
                                     ? 'bg-emerald-600 text-white shadow-emerald-500/20'
                                     : 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -225,7 +260,7 @@ const MedicineCard = memo(function MedicineCard({ medicine }) {
                             )}
                         </button>
                     ) : (
-                        <span className="text-xs text-gray-400 font-medium px-2 py-1 bg-gray-100 rounded-lg">
+                        <span className="text-xs text-gray-400 font-medium px-2 py-1 bg-gray-100 rounded-lg shrink-0">
                             Unavailable
                         </span>
                     )}

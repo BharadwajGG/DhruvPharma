@@ -1760,7 +1760,11 @@ def upload_distributor_inventory(
         if requires_rx:
             rx_flagged_count += 1
 
-        # Selling price resolution: respect explicit CSV selling price if present, else apply category pricing rule
+        # Selling price resolution:
+        # Per store owner instruction: The customer selling price is the Rate column price from the CSV!
+        # MRP is kept as maximum retail price with strikethrough cut line on storefront.
+        # Fallback to explicit selling price if present; else raw_rate if raw_rate > 0;
+        # otherwise fallback to raw_mrp or category pricing rule.
         explicit_selling_price = 0.0
         if selling_price_idx is not None and selling_price_idx < len(row):
             try:
@@ -1770,6 +1774,9 @@ def upload_distributor_inventory(
 
         if explicit_selling_price > 0:
             selling_price = round(explicit_selling_price, 2)
+        elif raw_rate > 0:
+            # Customer selling price is the Rate from distributor file (capped at MRP if MRP > 0)
+            selling_price = round(raw_rate, 2) if (raw_mrp <= 0 or raw_rate <= raw_mrp) else round(raw_mrp, 2)
         else:
             cat_rule = rules_map.get(category, default_rule)
             disc = cat_rule.discount_pct if cat_rule and cat_rule.enabled else default_discount

@@ -529,10 +529,15 @@ export default function CartPage() {
                                                 )}
                                             </div>
                                             <p className="text-[11px] text-gray-500 italic truncate">{item.salt || item.brand}</p>
-                                            <div className="flex items-baseline gap-2 mt-1">
-                                                <span className="font-bold text-gray-900 text-xs">₹{item.price}</span>
+                                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                                <span className="font-black text-gray-900 text-xs sm:text-sm">₹{item.price}</span>
                                                 {item.mrp > item.price && (
-                                                    <span className="text-[10px] text-gray-400 line-through">₹{item.mrp}</span>
+                                                    <>
+                                                        <span className="text-[10px] text-gray-400 line-through">MRP ₹{item.mrp}</span>
+                                                        <span className="text-[10px] font-bold text-emerald-700">
+                                                            {Math.round(((item.mrp - item.price) / item.mrp) * 100)}% OFF
+                                                        </span>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
