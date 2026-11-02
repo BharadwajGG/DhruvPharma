@@ -1325,23 +1325,11 @@ export default function AdminOrders() {
                                                 </span>
                                             </td>
 
-                                            {/* Quick Interactive Status Dropdown */}
+                                            {/* Order Status Badge (Safe, No accidental changes) */}
                                             <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                                                <select
-                                                    value={o.status}
-                                                    disabled={isUpdatingStatus}
-                                                    onChange={(e) => handleStatusTransition(o.id || o.orderId, e.target.value)}
-                                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-xl border outline-none cursor-pointer transition-all shadow-2xs ${
-                                                        cfg.style
-                                                    }`}
-                                                    title="Click to quickly change order status"
-                                                >
-                                                    <option value="pending" className="bg-white text-amber-900 font-semibold">New Order</option>
-                                                    <option value="confirmed" className="bg-white text-blue-900 font-semibold">Packed &amp; Ready</option>
-                                                    <option value="dispatched" className="bg-white text-purple-900 font-semibold">Out for Delivery</option>
-                                                    <option value="delivered" className="bg-white text-emerald-900 font-semibold">Delivered</option>
-                                                    <option value="cancelled" className="bg-white text-rose-900 font-semibold">Cancelled</option>
-                                                </select>
+                                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border shadow-2xs ${cfg.style}`}>
+                                                    <Icon size={13} /> {cfg.label}
+                                                </span>
                                             </td>
 
                                             {/* Action Buttons: View, Bill, WhatsApp & Delete */}
