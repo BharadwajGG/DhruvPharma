@@ -31,7 +31,16 @@ from notifications import (
     generate_cancellation_whatsapp_message,
     send_order_email,
 )
-from services.email_service import send_login_alert_email, send_order_cancelled_email, send_admin_cancellation_audit_email
+from services.email_service import (
+    send_login_alert_email,
+    send_order_cancelled_email,
+    send_admin_cancellation_audit_email,
+    send_owner_new_order_email,
+    send_order_packed_email,
+    send_order_out_for_delivery_email,
+    send_order_delivered_email,
+    send_owner_order_delivered_email,
+)
 
 # ==============================================================================
 # TIER 2 BRAND IMAGE SEED REGISTRY (Authentic Studio Pack Shots)
@@ -304,6 +313,7 @@ async def place_order(
     notes: Optional[str] = Form(""),
     couponCode: Optional[str] = Form(""),
     prescriptionFile: Optional[UploadFile] = File(None),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
     """
@@ -439,6 +449,9 @@ async def place_order(
     whatsapp_text = generate_whatsapp_message(order_dict)
     send_order_email(order_dict)
 
+    # Real-time instant email alert to Store Owner
+    background_tasks.add_task(send_owner_new_order_email, order_dict)
+
     # Broadcast real-time event to Admin Hub
     await broadcast_order_event("new_order", order_dict)
 
@@ -519,9 +532,10 @@ class OrderStatusUpdateRequest(BaseModel):
 async def update_order_status(
     order_id: str,
     payload: OrderStatusUpdateRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
-    """Updates order status, delivery agent, and expected delivery time; manages stock; broadcasts real-time update."""
+    """Updates order status, delivery agent, and expected delivery time; manages stock; broadcasts real-time update; sends lifecycle emails."""
     order = (
         db.query(OrderModel)
         .filter((OrderModel.order_id == order_id) | (OrderModel.id == order_id))
@@ -532,6 +546,13 @@ async def update_order_status(
 
     status_message = f"Order {order_id} updated."
     stock_updates = []
+    status_lower = None
+
+    if payload.delivery_agent is not None:
+        order.delivery_agent = payload.delivery_agent.strip()
+
+    if payload.expected_delivery is not None:
+        order.expected_delivery = payload.expected_delivery.strip()
 
     if payload.status:
         valid_statuses = ["pending", "confirmed", "dispatched", "delivered", "cancelled"]
@@ -602,6 +623,14 @@ async def update_order_status(
             cancel_wa = generate_cancellation_whatsapp_message(order_dict, cancelled_by="store", reason=cancel_reason)
             send_order_email(order_dict, subject=f"Order #{order.order_id} Cancelled - Dhruv Pharma", html_content=cancel_email)
 
+            # Audit notification to store owner
+            background_tasks.add_task(
+                send_admin_cancellation_audit_email,
+                order_data=order_dict,
+                reason=cancel_reason,
+                cancelled_by="admin"
+            )
+
             await broadcast_order_event("order_cancelled", {
                 "order": order_dict,
                 "orderId": order.order_id,
@@ -611,16 +640,24 @@ async def update_order_status(
             })
             status_message = f"Order {order.order_id} cancelled. Notification sent to customer via Email & WhatsApp."
 
-    if payload.delivery_agent is not None:
-        order.delivery_agent = payload.delivery_agent.strip()
-
-    if payload.expected_delivery is not None:
-        order.expected_delivery = payload.expected_delivery.strip()
-
     db.commit()
     db.refresh(order)
 
     order_dict = order.to_dict()
+    cust_email = (order.customer_email or "").strip()
+
+    # ── Multi-Stage Lifecycle Email Alerts for Customer & Store Owner ──
+    if status_lower == "confirmed":
+        if cust_email and "@" in cust_email:
+            background_tasks.add_task(send_order_packed_email, cust_email, order_dict)
+    elif status_lower == "dispatched":
+        if cust_email and "@" in cust_email:
+            background_tasks.add_task(send_order_out_for_delivery_email, cust_email, order_dict)
+    elif status_lower == "delivered":
+        if cust_email and "@" in cust_email:
+            background_tasks.add_task(send_order_delivered_email, cust_email, order_dict)
+        # Store Owner receives instant alert that order delivery succeeded and payment collected
+        background_tasks.add_task(send_owner_order_delivered_email, order_dict)
 
     # Broadcast update event to all active customer and admin tabs
     await broadcast_order_event("status_update", order_dict)
@@ -1182,6 +1219,7 @@ class AdminManualOrderCreate(BaseModel):
 @app.post("/api/admin/orders/create")
 async def create_admin_phone_order(
     payload: AdminManualOrderCreate,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
     """
@@ -1251,6 +1289,17 @@ async def create_admin_phone_order(
     db.refresh(new_order)
 
     order_dict = new_order.to_dict()
+
+    # Real-time instant alert to store owner for new order
+    background_tasks.add_task(send_owner_new_order_email, order_dict)
+
+    # Customer notification if email provided
+    if new_order.customer_email and "@" in new_order.customer_email:
+        if new_order.status == "confirmed":
+            background_tasks.add_task(send_order_packed_email, new_order.customer_email, order_dict)
+        else:
+            send_order_email(order_dict)
+
     await broadcast_order_event("new_order", order_dict)
 
     return {
@@ -3004,7 +3053,11 @@ class BulkOrderStatusRequest(BaseModel):
 
 
 @app.post("/api/orders/bulk-status")
-async def bulk_update_order_status(payload: BulkOrderStatusRequest, db: Session = Depends(get_db)):
+async def bulk_update_order_status(
+    payload: BulkOrderStatusRequest,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db)
+):
     valid_statuses = ["pending", "confirmed", "dispatched", "delivered", "cancelled"]
     st = payload.status.lower()
     if st not in valid_statuses:
@@ -3055,9 +3108,20 @@ async def bulk_update_order_status(payload: BulkOrderStatusRequest, db: Session 
 
     db.commit()
 
-    # Broadcast event via SSE for live admin dashboards
+    # Broadcast event via SSE for live admin dashboards & dispatch lifecycle emails
     for od in updated_orders:
         await broadcast_order_event("status_update", od)
+        ce = (od.get("customerEmail") or od.get("email") or od.get("customer_email") or "").strip()
+        if st == "confirmed":
+            if ce and "@" in ce:
+                background_tasks.add_task(send_order_packed_email, ce, od)
+        elif st == "dispatched":
+            if ce and "@" in ce:
+                background_tasks.add_task(send_order_out_for_delivery_email, ce, od)
+        elif st == "delivered":
+            if ce and "@" in ce:
+                background_tasks.add_task(send_order_delivered_email, ce, od)
+            background_tasks.add_task(send_owner_order_delivered_email, od)
 
     msg = f"Successfully updated {len(updated_orders)} orders to '{st.title()}'."
     if stock_notes:
