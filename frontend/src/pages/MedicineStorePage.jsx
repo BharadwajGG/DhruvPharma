@@ -373,7 +373,15 @@ export default function MedicineStorePage() {
 
         fetchMedicines()
 
+        // Real-time sync: reload medicines when Admin changes pricing or uploads catalog
+        const handleCatalogUpdated = () => {
+            cachedStoreMedicines = null
+            fetchMedicines()
+        }
+        window.addEventListener('catalog-updated', handleCatalogUpdated)
+
         return () => {
+            window.removeEventListener('catalog-updated', handleCatalogUpdated)
             controller.abort()
             clearTimeout(timeoutId)
         }

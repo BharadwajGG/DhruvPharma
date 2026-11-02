@@ -2276,6 +2276,7 @@ class PricingRulesBatchRequest(BaseModel):
     rules: List[PricingRuleUpdateItem]
     default_discount: Optional[float] = 0.0
     default_margin: Optional[float] = 5.0
+    apply_to_catalog: Optional[bool] = True
 
 
 @app.get("/api/admin/pricing-rules")
@@ -2290,7 +2291,7 @@ def get_pricing_rules(db: Session = Depends(get_db)):
 
 @app.post("/api/admin/pricing-rules")
 def update_pricing_rules(payload: PricingRulesBatchRequest, db: Session = Depends(get_db)):
-    """Updates category-wise discount percentages and margin floors."""
+    """Updates category-wise discount percentages and immediately applies them to live store medicines."""
     for item in payload.rules:
         r = db.query(PricingRuleModel).filter(PricingRuleModel.category == item.category).first()
         disc = max(0.0, min(100.0, float(item.discount_pct)))
@@ -2316,10 +2317,48 @@ def update_pricing_rules(payload: PricingRulesBatchRequest, db: Session = Depend
 
     db.commit()
     all_rules = db.query(PricingRuleModel).all()
+
+    # Automatically recalculate all current medicines in the live store so changes reflect instantly
+    recalc_count = 0
+    meds_total = 0
+    if payload.apply_to_catalog:
+        rules_map = {r.category: r for r in all_rules}
+        default_rule = rules_map.get("DEFAULT")
+        default_discount = default_rule.discount_pct if default_rule else 0.0
+        default_margin = default_rule.min_margin_pct if default_rule else 5.0
+
+        meds = db.query(MedicineModel).all()
+        meds_total = len(meds)
+        now_utc = datetime.utcnow()
+        for m in meds:
+            rule = rules_map.get(m.category, default_rule)
+            disc = rule.discount_pct if rule and rule.enabled else default_discount
+            margin = rule.min_margin_pct if rule and rule.enabled else default_margin
+            new_price = calculate_selling_price(
+                mrp=m.mrp,
+                cost_price=m.cost_price,
+                discount_pct=disc,
+                min_margin_pct=margin,
+            )
+            if m.selling_price != new_price:
+                m.selling_price = new_price
+                m.updated_at = now_utc
+                recalc_count += 1
+        db.commit()
+
+        # Broadcast live event to all storefront tabs
+        broadcast_order_event_sync("catalog_update", {
+            "action": "recalculate_catalog",
+            "updatedCount": recalc_count,
+            "totalCatalog": meds_total,
+        })
+
     return {
         "success": True,
-        "message": f"Successfully updated {len(payload.rules)} pricing & margin rule(s).",
+        "message": f"Saved rules and updated prices for {meds_total} medicines in your store ({recalc_count} prices adjusted in real-time).",
         "rules": [r.to_dict() for r in all_rules],
+        "recalcCount": recalc_count,
+        "totalCatalog": meds_total,
     }
 
 
