@@ -631,27 +631,6 @@ export default function MedicineStorePage() {
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
 
-                {/* ── Top Category Pill Ribbon (Horizontal Smooth Scroll) ── */}
-                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-                    {STORE_CATEGORIES.map((cat) => {
-                        const isActive = activeCategory === cat
-                        return (
-                            <button
-                                key={cat}
-                                type="button"
-                                onClick={() => setActiveCategory(cat)}
-                                className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                                    isActive
-                                        ? 'bg-blue-600 text-white shadow-xs scale-102'
-                                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 hover:border-slate-300'
-                                }`}
-                            >
-                                {cat}
-                            </button>
-                        )
-                    })}
-                </div>
-
                 {/* ── Search + Filter + Sort Bar ── */}
                 <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1 relative" ref={searchContainerRef}>
