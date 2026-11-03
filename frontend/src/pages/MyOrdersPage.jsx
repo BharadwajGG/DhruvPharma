@@ -518,14 +518,6 @@ export default function MyOrdersPage() {
                                 <span>{isLoading ? 'Syncing...' : 'Refresh'}</span>
                             </button>
 
-                            <Link
-                                to="/track-order"
-                                className="inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-2xs"
-                            >
-                                <Truck size={14} />
-                                <span>Track Any Order</span>
-                            </Link>
-
                             <a
                                 href="https://wa.me/919503500725?text=Hello%20Dhruv%20Pharma%2C%20I%20have%20an%20inquiry%20about%20my%20medicine%20order."
                                 target="_blank"
@@ -536,74 +528,6 @@ export default function MyOrdersPage() {
                                 <span>WhatsApp Pharmacist</span>
                             </a>
                         </div>
-                    </div>
-                </div>
-
-                {/* ── KPI Summary Statistics Strip ── */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                    <div
-                        onClick={() => setActiveTab('all')}
-                        className={`bg-white p-4 rounded-2xl border transition-all cursor-pointer ${
-                            activeTab === 'all'
-                                ? 'border-blue-500 shadow-md ring-2 ring-blue-100'
-                                : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">All Orders</span>
-                            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
-                                <ShoppingBag size={16} />
-                            </div>
-                        </div>
-                        <p className="text-2xl font-black text-slate-900 mt-2">{metrics.total}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Full customer history</p>
-                    </div>
-
-                    <div
-                        onClick={() => setActiveTab('active')}
-                        className={`bg-white p-4 rounded-2xl border transition-all cursor-pointer ${
-                            activeTab === 'active'
-                                ? 'border-sky-500 shadow-md ring-2 ring-sky-100'
-                                : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-sky-700 uppercase tracking-wider">In Progress</span>
-                            <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
-                                <Truck size={16} />
-                            </div>
-                        </div>
-                        <p className="text-2xl font-black text-sky-900 mt-2">{metrics.active}</p>
-                        <p className="text-[11px] text-sky-600 font-medium mt-0.5">Packing &amp; in transit</p>
-                    </div>
-
-                    <div
-                        onClick={() => setActiveTab('delivered')}
-                        className={`bg-white p-4 rounded-2xl border transition-all cursor-pointer ${
-                            activeTab === 'delivered'
-                                ? 'border-emerald-500 shadow-md ring-2 ring-emerald-100'
-                                : 'border-slate-200/80 hover:border-slate-300 shadow-2xs'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Delivered</span>
-                            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                                <CheckCircle2 size={16} />
-                            </div>
-                        </div>
-                        <p className="text-2xl font-black text-emerald-900 mt-2">{metrics.delivered}</p>
-                        <p className="text-[11px] text-emerald-600 font-medium mt-0.5">Fulfilled at doorstep</p>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Value</span>
-                            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                                <Sparkles size={16} />
-                            </div>
-                        </div>
-                        <p className="text-2xl font-black text-indigo-950 mt-2">₹{metrics.totalSpend.toFixed(0)}</p>
-                        <p className="text-[11px] text-indigo-600 font-medium mt-0.5">Medicine orders value</p>
                     </div>
                 </div>
 
@@ -756,23 +680,13 @@ export default function MyOrdersPage() {
                                             </span>
                                         </div>
 
-                                        {/* Status Pill & Live Track Link */}
+                                        {/* Status Pill */}
                                         <div className="flex items-center gap-2.5">
                                             <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${cfg.badge}`}>
                                                 <span className={`w-2 h-2 rounded-full ${cfg.dot} ${order.status !== 'cancelled' && order.status !== 'delivered' ? 'animate-pulse' : ''}`} />
                                                 <StatusIcon size={13} />
                                                 <span>{cfg.label}</span>
                                             </span>
-
-                                            {order.status !== 'cancelled' && (
-                                                <Link
-                                                    to={`/track-order?id=${orderId}`}
-                                                    className="hidden sm:inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50/80 hover:bg-blue-100 px-3 py-1 rounded-full transition-colors"
-                                                >
-                                                    <span>Live Track</span>
-                                                    <ArrowRight size={12} />
-                                                </Link>
-                                            )}
                                         </div>
                                     </div>
 
@@ -1045,17 +959,6 @@ export default function MyOrdersPage() {
                                                     <Printer size={13} />
                                                     <span>Tax Invoice</span>
                                                 </button>
-
-                                                {/* Live Track */}
-                                                {order.status !== 'cancelled' && (
-                                                    <Link
-                                                        to={`/track-order?id=${orderId}`}
-                                                        className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all shadow-2xs"
-                                                    >
-                                                        <Truck size={13} className="text-blue-600" />
-                                                        <span>Track Parcel</span>
-                                                    </Link>
-                                                )}
                                             </div>
 
                                             {/* Cancel Order capability (Active for pending or confirmed orders) */}
