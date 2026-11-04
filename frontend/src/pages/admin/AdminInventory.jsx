@@ -312,6 +312,14 @@ export default function AdminInventory() {
                     nextItem.stock = st
                     nextItem.stockQuantity = st
                 }
+                if (field === 'batch_number' || field === 'batchNumber') {
+                    nextItem.batch_number = value
+                    nextItem.batchNumber = value
+                }
+                if (field === 'expiry_date' || field === 'expiryDate') {
+                    nextItem.expiry_date = value
+                    nextItem.expiryDate = value
+                }
                 return nextItem
             })
 
@@ -331,6 +339,8 @@ export default function AdminInventory() {
         if (field === 'stock' || field === 'stockQuantity') payload.stock_quantity = parseInt(value) || 0
         if (field === 'requires_rx' || field === 'requiresPrescription') payload.requires_prescription = Boolean(value)
         if (field === 'is_visible' || field === 'isVisible') payload.is_visible = Boolean(value)
+        if (field === 'batch_number' || field === 'batchNumber') payload.batch_number = String(value).trim()
+        if (field === 'expiry_date' || field === 'expiryDate') payload.expiry_date = String(value).trim()
 
         try {
             const res = await fetch(`http://localhost:8000/api/inventory/${itemId}`, {
@@ -1047,6 +1057,8 @@ export default function AdminInventory() {
                                     </th>
                                     <th className="py-3.5 px-3 text-right min-w-[130px]">Selling Price (₹)</th>
                                     <th className="py-3.5 px-3 text-center min-w-[95px]">Stock Qty</th>
+                                    <th className="py-3.5 px-3 text-center min-w-[125px]" title="Manufacturer Pharmaceutical Batch Number (Shown only in Tax Invoice)">Batch No.</th>
+                                    <th className="py-3.5 px-3 text-center min-w-[100px]" title="Manufacturer Expiry Date MM/YY (Shown only in Tax Invoice)">Exp. Date</th>
                                     <th className="py-3.5 px-3 text-center min-w-[110px]">Doctor Rx</th>
                                     <th className="py-3.5 px-3 text-center min-w-[110px]">Store Visibility</th>
                                     <th className="py-3.5 px-4 text-center w-16">Remove</th>
@@ -1254,6 +1266,30 @@ export default function AdminInventory() {
                                                         </div>
                                                     )
                                                 })()}
+                                            </td>
+
+                                            {/* Batch No. (Direct real-time sync with Tax Invoice) */}
+                                            <td className="py-3 px-3 text-center">
+                                                <input
+                                                    type="text"
+                                                    defaultValue={item.batchNumber || item.batch_number || ''}
+                                                    onBlur={(e) => handleUpdateItem(item.id, 'batch_number', e.target.value)}
+                                                    placeholder="e.g. BT-2409"
+                                                    className="w-24 text-center px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-800 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-400 bg-white transition-all uppercase placeholder:normal-case placeholder:font-sans placeholder:text-[10px]"
+                                                    title="Manufacturer Pharmaceutical Batch Number (Shown only in Tax Invoice)"
+                                                />
+                                            </td>
+
+                                            {/* Exp. Date (Direct real-time sync with Tax Invoice) */}
+                                            <td className="py-3 px-3 text-center">
+                                                <input
+                                                    type="text"
+                                                    defaultValue={item.expiryDate || item.expiry_date || ''}
+                                                    onBlur={(e) => handleUpdateItem(item.id, 'expiry_date', e.target.value)}
+                                                    placeholder="MM/YY"
+                                                    className="w-20 text-center px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-800 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-400 bg-white transition-all placeholder:font-sans placeholder:text-[10px]"
+                                                    title="Batch Expiry Date MM/YY (Shown only in Tax Invoice)"
+                                                />
                                             </td>
 
                                             {/* Doctor Rx Needed Toggle Pill */}
