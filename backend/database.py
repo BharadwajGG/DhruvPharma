@@ -779,20 +779,13 @@ def init_db():
                 db.add(PricingRuleModel(**rule))
             db.commit()
 
-        # 7. Seed real pharmaceutical batch numbers and expiry dates for medicines if missing
-        empty_batch_meds = db.query(MedicineModel).filter(
-            (MedicineModel.batch_number == None) | (MedicineModel.batch_number == "")
+        # 7. Ensure standard HSN code exists if empty
+        empty_hsn_meds = db.query(MedicineModel).filter(
+            (MedicineModel.hsn_code == None) | (MedicineModel.hsn_code == "")
         ).all()
-        for idx, med in enumerate(empty_batch_meds):
-            prefix = "".join([c for c in (med.name or "MED").upper() if c.isalnum()])[:4] or "MED"
-            batch_num = f"{prefix}-{((med.id or 100) * 17) % 8999 + 1000}"
-            exp_months = ["06/27", "09/27", "11/27", "12/27", "03/28", "08/28"]
-            exp_date = exp_months[(med.id or 1) % len(exp_months)]
-            med.batch_number = batch_num
-            med.expiry_date = exp_date
-            if not med.hsn_code:
-                med.hsn_code = "30049099"
-        if empty_batch_meds:
+        for med in empty_hsn_meds:
+            med.hsn_code = "30049099"
+        if empty_hsn_meds:
             db.commit()
 
     finally:

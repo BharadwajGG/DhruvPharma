@@ -65,7 +65,7 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
         totalDiscountSum = invoiceData.mrpDiscountAmount || 0
         priceLockSavings = invoiceData.priceLockSavings || 0
     } else {
-        // Dynamic client-side calculation with multi-batch logic
+        // Dynamic client-side calculation with multi-batch logic (strictly real owner-assigned batches)
         rawItems.forEach((item, index) => {
             const itemName = item.name || 'Medicine Item'
             const marketer = item.brand || item.manufacturer || 'Dhruv Pharma'
@@ -74,11 +74,52 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
             const baseMrp = Number(item.mrp || item.price || item.sellingPrice || 0)
             const unitSellingPrice = Number(item.price || item.sellingPrice || baseMrp)
 
-            const batchNo = item.batch_number || item.batchNumber || `DPB-${((item.id || index + 1) * 37) % 8999 + 1000}`
-            const expDate = item.expiry_date || item.expiryDate || '09/27'
+            // 1. Check if owner explicitly allocated multi-batches for this order item
+            if (item.batch_allocations && Array.isArray(item.batch_allocations) && item.batch_allocations.length > 0) {
+                item.batch_allocations.forEach((alloc) => {
+                    const allocQty = parseInt(alloc.qty || 1) || 1
+                    if (allocQty <= 0) return
+                    const allocBatch = alloc.batch_no || alloc.batchNo || '—'
+                    const allocExp = alloc.exp_date || alloc.expDate || '—'
+                    const allocMrp = Number(alloc.mrp || baseMrp)
+                    const mrpTotal = Number((allocMrp * allocQty).toFixed(2))
+                    const totalAmt = Number((unitSellingPrice * allocQty).toFixed(2))
+                    const disc = Number(Math.max(0, mrpTotal - totalAmt).toFixed(2))
+                    const taxable = Number((totalAmt / 1.05).toFixed(2))
+                    const gst = Number((totalAmt - taxable).toFixed(2))
+
+                    if (allocMrp > baseMrp) {
+                        priceLockSavings += Number(((allocMrp - baseMrp) * allocQty).toFixed(2))
+                    }
+
+                    lines.push({
+                        sr: lines.length + 1,
+                        itemName,
+                        marketer,
+                        hsn,
+                        batchNo: allocBatch,
+                        expDate: allocExp,
+                        mrp: allocMrp,
+                        qty: allocQty,
+                        mrpTotal,
+                        discount: disc,
+                        taxableAmt: taxable,
+                        gstPct: 5.0,
+                        gstAmt: gst,
+                        totalAmt,
+                    })
+                    totalMrpSum += mrpTotal
+                    totalDiscountSum += disc
+                })
+                return
+            }
+
+            // 2. Real-time batch check from item snapshot or master
+            const batchNo = item.batch_number || item.batchNumber || '—'
+            const expDate = item.expiry_date || item.expiryDate || '—'
 
             const secBatch = item.secondary_batch_number || item.secondaryBatchNumber || ''
-            const secExp = item.secondary_expiry_date || item.secondaryExpiryDate || '12/27'
+            const secExp = item.secondary_expiry_date || item.secondaryExpiryDate || '—'
             const secMrp = Number(item.secondary_mrp || item.secondaryMrp || (baseMrp * 1.1))
 
             // Multi-batch split check
@@ -96,8 +137,8 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
                     itemName,
                     marketer,
                     hsn,
-                    batchNo,
-                    expDate,
+                    batchNo: batchNo || '—',
+                    expDate: expDate || '—',
                     mrp: baseMrp,
                     qty: qty1,
                     mrpTotal: mrpTotal1,
@@ -122,8 +163,8 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
                     itemName,
                     marketer,
                     hsn,
-                    batchNo: secBatch,
-                    expDate: secExp,
+                    batchNo: secBatch || '—',
+                    expDate: secExp || '—',
                     mrp: secMrp,
                     qty: qty2,
                     mrpTotal: mrpTotal2,
@@ -148,8 +189,8 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
                     itemName,
                     marketer,
                     hsn,
-                    batchNo,
-                    expDate,
+                    batchNo: batchNo || '—',
+                    expDate: expDate || '—',
                     mrp: baseMrp,
                     qty: totalQty,
                     mrpTotal,

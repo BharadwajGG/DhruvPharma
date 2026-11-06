@@ -114,6 +114,8 @@ export default function AdminOrders() {
     const [isBulkUpdating, setIsBulkUpdating] = useState(false)
     const [stockAlertMessage, setStockAlertMessage] = useState('')
     const [copiedCallbackPhone, setCopiedCallbackPhone] = useState(null)
+    const [batchAssignModal, setBatchAssignModal] = useState(null)
+    const [isSavingBatch, setIsSavingBatch] = useState(false)
 
     // ── Callbacks Queue & Phone Orders States ──
     const [callbacks, setCallbacks] = useState([])
@@ -492,6 +494,36 @@ export default function AdminOrders() {
             }
         } catch (err) {
             console.error('Delete callback error:', err)
+        }
+    }
+
+    // Save Real-Time Physical Batch Allocation for Order Item
+    const handleSaveBatchAllocation = async (allocationPayload) => {
+        if (!batchAssignModal) return
+        const orderId = batchAssignModal.order.orderId || batchAssignModal.order.id
+        setIsSavingBatch(true)
+        try {
+            const res = await fetch(`http://localhost:8000/api/orders/${orderId}/assign-batches`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_index: batchAssignModal.itemIndex,
+                    ...allocationPayload,
+                }),
+            })
+            const data = await res.json()
+            if (res.ok && data.order) {
+                setOrders((prev) => prev.map((o) => ((o.orderId === orderId || o.id === orderId) ? data.order : o)))
+                setSelected(data.order)
+                setBatchAssignModal(null)
+            } else {
+                alert(data.detail || 'Failed to update batch allocation.')
+            }
+        } catch (err) {
+            console.error('Batch assign error:', err)
+            alert('Failed to connect to server.')
+        } finally {
+            setIsSavingBatch(false)
         }
     }
 
@@ -1635,31 +1667,67 @@ export default function AdminOrders() {
 
                                 {/* Itemized Medicines Table */}
                                 <div>
-                                    <p className="font-bold text-gray-800 mb-2">Itemized Medicines</p>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <p className="font-bold text-gray-800 text-xs">
+                                            Itemized Medicines &amp; Physical Batch Allocation
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedInvoiceOrder(selected)}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                                        >
+                                            <FileText size={12} /> View Tax Invoice
+                                        </button>
+                                    </div>
                                     <div className="border border-gray-200 rounded-xl overflow-hidden">
                                         <table className="w-full text-left">
                                             <thead>
-                                                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 font-semibold">
-                                                    <th className="py-2 px-3">Item</th>
+                                                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 font-semibold text-[11px]">
+                                                    <th className="py-2 px-3">Item &amp; Dispensed Batch</th>
                                                     <th className="py-2 px-3 text-center">Qty</th>
-                                                    <th className="py-2 px-3 text-right">Price</th>
+                                                    <th className="py-2 px-3 text-right">Selling Price</th>
                                                     <th className="py-2 px-3 text-right">Total</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-gray-100">
+                                            <tbody className="divide-y divide-gray-100 text-xs">
                                                 {(selected.items || []).map((item, idx) => (
-                                                    <tr key={idx}>
+                                                    <tr key={idx} className="hover:bg-slate-50/60">
                                                         <td className="py-2.5 px-3">
                                                             <p className="font-bold text-gray-900">{item.name}</p>
                                                             <p className="text-[10px] text-gray-400">{item.salt || item.brand}</p>
+                                                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                                                {item.batch_allocations && item.batch_allocations.length > 0 ? (
+                                                                    item.batch_allocations.map((ba, bIdx) => (
+                                                                        <span key={bIdx} className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded font-mono font-bold">
+                                                                            Batch {bIdx + 1}: {ba.batch_no} (Exp: {ba.exp_date}, MRP: ₹{ba.mrp}, Qty: {ba.qty})
+                                                                        </span>
+                                                                    ))
+                                                                ) : item.batch_number ? (
+                                                                    <span className="bg-slate-100 text-slate-800 border border-slate-200 px-1.5 py-0.5 rounded font-mono font-bold">
+                                                                        Batch: {item.batch_number} {item.expiry_date ? `(Exp: ${item.expiry_date})` : ''} {item.mrp ? `· MRP ₹${item.mrp}` : ''}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded font-medium">
+                                                                        Batch: Pending Verification
+                                                                    </span>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBatchAssignModal({ order: selected, itemIndex: idx, item })}
+                                                                    className="text-emerald-700 hover:text-emerald-900 font-bold underline cursor-pointer ml-1"
+                                                                    title="Assign physical strips batch number or split multi-batch"
+                                                                >
+                                                                    Assign / Split Batch
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                         <td className="py-2.5 px-3 text-center font-semibold text-gray-700">
                                                             {item.qty}
                                                         </td>
-                                                        <td className="py-2.5 px-3 text-right text-gray-600">
+                                                        <td className="py-2.5 px-3 text-right text-gray-600 font-mono">
                                                             ₹{item.price}
                                                         </td>
-                                                        <td className="py-2.5 px-3 text-right font-bold text-gray-900">
+                                                        <td className="py-2.5 px-3 text-right font-bold text-gray-900 font-mono">
                                                             ₹{(item.price * item.qty).toFixed(2)}
                                                         </td>
                                                     </tr>
@@ -2453,6 +2521,16 @@ export default function AdminOrders() {
                     </div>
                 )}
 
+                {/* ── Real-Time Batch Allocation & Price-Lock Modal ── */}
+                {batchAssignModal && (
+                    <BatchAssignModalView
+                        modalData={batchAssignModal}
+                        onClose={() => setBatchAssignModal(null)}
+                        onSave={handleSaveBatchAllocation}
+                        isSaving={isSavingBatch}
+                    />
+                )}
+
                 {/* ── Official GST Tax Invoice Modal ── */}
                 <OrderInvoiceModal
                     order={selectedInvoiceOrder}
@@ -2461,5 +2539,312 @@ export default function AdminOrders() {
                 />
             </div>
         </AdminLayout>
+    )
+}
+
+function BatchAssignModalView({ modalData, onClose, onSave, isSaving }) {
+    const { item, order } = modalData
+    const totalQty = parseInt(item.qty || 1) || 1
+    const baseSelling = Number(item.price || item.sellingPrice || 0)
+
+    const initialAllocations = item.batch_allocations || []
+    const [isSplit, setIsSplit] = useState(initialAllocations.length > 1)
+
+    // Single batch state
+    const [singleBatchNo, setSingleBatchNo] = useState(item.batch_number || '')
+    const [singleExpDate, setSingleExpDate] = useState(item.expiry_date || '')
+    const [singleMrp, setSingleMrp] = useState(item.mrp || item.price || '')
+
+    // Split multi-batch state (Old Batch vs New Restocked Batch)
+    const [b1BatchNo, setB1BatchNo] = useState(initialAllocations[0]?.batch_no || item.batch_number || '')
+    const [b1ExpDate, setB1ExpDate] = useState(initialAllocations[0]?.exp_date || item.expiry_date || '')
+    const [b1Mrp, setB1Mrp] = useState(initialAllocations[0]?.mrp || item.mrp || item.price || '')
+    const [b1Qty, setB1Qty] = useState(initialAllocations[0]?.qty || Math.floor(totalQty / 2) || 1)
+
+    const [b2BatchNo, setB2BatchNo] = useState(initialAllocations[1]?.batch_no || item.secondary_batch_number || '')
+    const [b2ExpDate, setB2ExpDate] = useState(initialAllocations[1]?.exp_date || item.secondary_expiry_date || '')
+    const [b2Mrp, setB2Mrp] = useState(initialAllocations[1]?.mrp || item.secondary_mrp || (Number(item.mrp || item.price || 0) * 1.1).toFixed(2))
+    const [b2Qty, setB2Qty] = useState(initialAllocations[1]?.qty || (totalQty - (Math.floor(totalQty / 2) || 1)) || 1)
+
+    const handleSubmit = (e) => {
+        e.preventDefault()
+        if (isSplit) {
+            const q1 = parseInt(b1Qty) || 0
+            const q2 = parseInt(b2Qty) || 0
+            if (q1 + q2 !== totalQty) {
+                alert(`Total split quantities (${q1} + ${q2} = ${q1 + q2}) must equal total ordered quantity (${totalQty})!`)
+                return
+            }
+            onSave({
+                batch_allocations: [
+                    { batch_no: b1BatchNo.trim(), exp_date: b1ExpDate.trim(), mrp: parseFloat(b1Mrp) || 0, qty: q1 },
+                    { batch_no: b2BatchNo.trim(), exp_date: b2ExpDate.trim(), mrp: parseFloat(b2Mrp) || 0, qty: q2 },
+                ],
+                batch_number: b1BatchNo.trim(),
+                expiry_date: b1ExpDate.trim(),
+                mrp: parseFloat(b1Mrp) || 0,
+                secondary_batch_number: b2BatchNo.trim(),
+                secondary_expiry_date: b2ExpDate.trim(),
+                secondary_mrp: parseFloat(b2Mrp) || 0,
+            })
+        } else {
+            onSave({
+                batch_allocations: [],
+                batch_number: singleBatchNo.trim(),
+                expiry_date: singleExpDate.trim(),
+                mrp: parseFloat(singleMrp) || 0,
+            })
+        }
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-60 animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 border border-slate-200 shadow-2xl relative max-h-[92vh] flex flex-col">
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-colors"
+                >
+                    <X size={18} />
+                </button>
+
+                <div className="flex items-center gap-2.5 pb-2 border-b border-slate-100">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                        <Pill size={20} />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-slate-900 text-base">Real-Time Batch Allocation</h3>
+                        <p className="text-xs text-slate-500">
+                            Set physical strip batch &amp; exp. date for order <strong className="text-slate-800">#{order.orderId || order.id}</strong>
+                        </p>
+                    </div>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 text-xs space-y-1">
+                    <p className="font-bold text-slate-900">{item.name}</p>
+                    <p className="text-slate-500 text-[11px]">{item.salt || item.brand}</p>
+                    <div className="pt-1 flex items-center justify-between text-slate-700 font-medium">
+                        <span>Total Quantity: <strong>{totalQty} Strips</strong></span>
+                        <span>Agreed Customer Price: <strong className="text-emerald-700 font-mono">₹{baseSelling.toFixed(2)} / strip</strong></span>
+                    </div>
+                </div>
+
+                {/* Allocation Mode Selector */}
+                <div className="flex bg-slate-100 p-1 rounded-xl gap-1 text-xs font-bold">
+                    <button
+                        type="button"
+                        onClick={() => setIsSplit(false)}
+                        className={`flex-1 py-1.5 rounded-lg transition-all ${
+                            !isSplit ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        Single Batch (All {totalQty} Strips)
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsSplit(true)}
+                        className={`flex-1 py-1.5 rounded-lg transition-all ${
+                            isSplit ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        Multi-Batch Split (Price Lock)
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-3 text-xs pr-1">
+                    {!isSplit ? (
+                        <div className="bg-white p-3.5 border border-slate-200 rounded-2xl space-y-3">
+                            <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                                Physical Batch Details
+                            </p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                        Batch No. (Printed on Strip)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. ZHVC031025"
+                                        value={singleBatchNo}
+                                        onChange={(e) => setSingleBatchNo(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono font-bold uppercase text-slate-800 outline-none focus:border-emerald-600"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                        Exp. Date (MM/YY)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. 09/27"
+                                        value={singleExpDate}
+                                        onChange={(e) => setSingleExpDate(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-800 outline-none focus:border-emerald-600"
+                                    />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                        Printed MRP on Strip (₹)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        required
+                                        placeholder="e.g. 168.17"
+                                        value={singleMrp}
+                                        onChange={(e) => setSingleMrp(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-800 outline-none focus:border-emerald-600"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="bg-emerald-50/80 border border-emerald-200 p-2.5 rounded-xl text-[11px] text-emerald-900 leading-snug">
+                                <strong>💡 Price Lock Guarantee:</strong> If Batch 2 has a higher printed MRP, the customer still receives it at the agreed selling price (<strong className="font-mono">₹{baseSelling.toFixed(2)}</strong>). The discount expands automatically on the Tax Invoice!
+                            </div>
+
+                            {/* Batch 1 (Old Batch) */}
+                            <div className="bg-white p-3 border border-slate-200 rounded-2xl space-y-2">
+                                <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider block">
+                                    1. Old Batch (Remaining Stock)
+                                </span>
+                                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Batch No.</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. ZHVC031025"
+                                            value={b1BatchNo}
+                                            onChange={(e) => setB1BatchNo(e.target.value)}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold uppercase"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Exp. Date</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. 09/27"
+                                            value={b1ExpDate}
+                                            onChange={(e) => setB1ExpDate(e.target.value)}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Printed MRP (₹)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            required
+                                            placeholder="168.17"
+                                            value={b1Mrp}
+                                            onChange={(e) => setB1Mrp(e.target.value)}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Qty from this batch</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max={totalQty - 1}
+                                            required
+                                            value={b1Qty}
+                                            onChange={(e) => {
+                                                const v = parseInt(e.target.value) || 1
+                                                setB1Qty(v)
+                                                setB2Qty(Math.max(1, totalQty - v))
+                                            }}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Batch 2 (New Restocked Batch) */}
+                            <div className="bg-emerald-50/40 p-3 border border-emerald-300 rounded-2xl space-y-2">
+                                <span className="font-bold text-emerald-900 text-[11px] uppercase tracking-wider block">
+                                    2. New Restocked Batch (Higher Revised MRP)
+                                </span>
+                                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Batch No.</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. ZHVC020126"
+                                            value={b2BatchNo}
+                                            onChange={(e) => setB2BatchNo(e.target.value)}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold uppercase"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Exp. Date</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. 12/27"
+                                            value={b2ExpDate}
+                                            onChange={(e) => setB2ExpDate(e.target.value)}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">New Printed MRP (₹)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            required
+                                            placeholder="184.98"
+                                            value={b2Mrp}
+                                            onChange={(e) => setB2Mrp(e.target.value)}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold text-emerald-800"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-slate-600 font-semibold block mb-0.5">Qty from this batch</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max={totalQty - 1}
+                                            required
+                                            value={b2Qty}
+                                            onChange={(e) => {
+                                                const v = parseInt(e.target.value) || 1
+                                                setB2Qty(v)
+                                                setB1Qty(Math.max(1, totalQty - v))
+                                            }}
+                                            className="w-full px-2 py-1 border rounded-lg font-mono font-bold text-emerald-800"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-3 py-1.5 border border-slate-300 rounded-xl font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={isSaving}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-1.5 rounded-xl transition-colors shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                            <span>Save &amp; Update Tax Invoice</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     )
 }

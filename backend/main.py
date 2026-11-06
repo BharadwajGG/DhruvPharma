@@ -3257,15 +3257,6 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
         marketer = (med.manufacturer if med and med.manufacturer else (item.get("brand") or item.get("manufacturer") or "Dhruv Pharma")).strip()
         hsn = (med.hsn_code if med and med.hsn_code else item.get("hsn_code") or "30049099").strip()
 
-        batch_no = (med.batch_number if med and med.batch_number else item.get("batch_number") or "").strip()
-        if not batch_no:
-            prefix = "".join([c for c in item_name.upper() if c.isalnum()])[:4] or "MED"
-            batch_no = f"{prefix}-{((item.get('id', idx) or idx) * 37) % 8999 + 1000}"
-
-        exp_date = (med.expiry_date if med and med.expiry_date else item.get("expiry_date") or "").strip()
-        if not exp_date:
-            exp_date = "09/27"
-
         base_mrp = float(med.mrp if med and med.mrp else item.get("mrp") or item.get("price") or 0.0)
         unit_selling_price = float(item.get("price") or item.get("sellingPrice") or (med.selling_price if med else base_mrp))
         if base_mrp <= 0:
@@ -3273,10 +3264,56 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
 
         total_qty = int(item.get("qty", 1) or 1)
 
+        # 1. Check if owner explicitly allocated multi-batches for this order item
+        allocations = item.get("batch_allocations")
+        if allocations and isinstance(allocations, list) and len(allocations) > 0:
+            first_mrp = float(allocations[0].get("mrp") or base_mrp)
+            for alloc in allocations:
+                alloc_qty = int(alloc.get("qty", 1) or 1)
+                if alloc_qty <= 0:
+                    continue
+                alloc_batch = str(alloc.get("batch_no") or alloc.get("batchNo") or "-").strip()
+                alloc_exp = str(alloc.get("exp_date") or alloc.get("expDate") or "-").strip()
+                alloc_mrp = float(alloc.get("mrp") or base_mrp)
+
+                mrp_total = round(alloc_mrp * alloc_qty, 2)
+                # Customer rate is strictly locked to original agreed selling price!
+                line_total = round(unit_selling_price * alloc_qty, 2)
+                disc = round(max(0.0, mrp_total - line_total), 2)
+                taxable = round(line_total / 1.05, 2)
+                gst = round(line_total - taxable, 2)
+
+                if alloc_mrp > first_mrp:
+                    price_lock_savings += round((alloc_mrp - first_mrp) * alloc_qty, 2)
+
+                invoice_lines.append({
+                    "sr": len(invoice_lines) + 1,
+                    "itemName": item_name,
+                    "marketer": marketer,
+                    "hsn": hsn,
+                    "batchNo": alloc_batch or "-",
+                    "expDate": alloc_exp or "-",
+                    "mrp": alloc_mrp,
+                    "qty": alloc_qty,
+                    "mrpTotal": mrp_total,
+                    "discount": disc,
+                    "taxableAmt": taxable,
+                    "gstPct": 5.0,
+                    "gstAmt": gst,
+                    "totalAmt": line_total,
+                })
+                total_mrp_sum += mrp_total
+                total_discount_sum += disc
+            continue
+
+        # 2. Real-time batch check from order snapshot or medicine catalog (strictly real, NO random generators)
+        batch_no = (item.get("batch_number") or item.get("batchNo") or (med.batch_number if med else "") or "").strip()
+        exp_date = (item.get("expiry_date") or item.get("expDate") or (med.expiry_date if med else "") or "").strip()
+
         # Multi-batch check: if secondary batch exists and total_qty >= 2
-        sec_batch = (med.secondary_batch_number if med and med.secondary_batch_number else item.get("secondary_batch_number") or "").strip()
-        sec_exp = (med.secondary_expiry_date if med and med.secondary_expiry_date else item.get("secondary_expiry_date") or "12/27").strip()
-        sec_mrp = float(med.secondary_mrp if med and med.secondary_mrp else item.get("secondary_mrp") or 0.0)
+        sec_batch = (item.get("secondary_batch_number") or (med.secondary_batch_number if med else "") or "").strip()
+        sec_exp = (item.get("secondary_expiry_date") or (med.secondary_expiry_date if med else "") or "").strip()
+        sec_mrp = float(item.get("secondary_mrp") or (med.secondary_mrp if med else 0.0) or 0.0)
 
         if sec_batch and total_qty >= 2:
             qty_b1 = total_qty // 2
@@ -3295,8 +3332,8 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
                 "itemName": item_name,
                 "marketer": marketer,
                 "hsn": hsn,
-                "batchNo": batch_no,
-                "expDate": exp_date,
+                "batchNo": batch_no or "-",
+                "expDate": exp_date or "-",
                 "mrp": base_mrp,
                 "qty": qty_b1,
                 "mrpTotal": mrp_total_1,
@@ -3323,8 +3360,8 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
                 "itemName": item_name,
                 "marketer": marketer,
                 "hsn": hsn,
-                "batchNo": sec_batch,
-                "expDate": sec_exp,
+                "batchNo": sec_batch or "-",
+                "expDate": sec_exp or "-",
                 "mrp": mrp_b2,
                 "qty": qty_b2,
                 "mrpTotal": mrp_total_2,
@@ -3349,8 +3386,8 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
                 "itemName": item_name,
                 "marketer": marketer,
                 "hsn": hsn,
-                "batchNo": batch_no,
-                "expDate": exp_date,
+                "batchNo": batch_no or "-",
+                "expDate": exp_date or "-",
                 "mrp": base_mrp,
                 "qty": total_qty,
                 "mrpTotal": mrp_total,
@@ -3421,6 +3458,69 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
         }
     }
     return invoice_data
+
+
+class BatchSplitItem(BaseModel):
+    batch_no: str
+    exp_date: str
+    mrp: float
+    qty: int
+
+
+class OrderBatchAssignRequest(BaseModel):
+    item_index: int
+    batch_allocations: Optional[List[BatchSplitItem]] = None
+    batch_number: Optional[str] = None
+    expiry_date: Optional[str] = None
+    mrp: Optional[float] = None
+    secondary_batch_number: Optional[str] = None
+    secondary_expiry_date: Optional[str] = None
+    secondary_mrp: Optional[float] = None
+
+
+@app.patch("/api/orders/{order_id}/assign-batches")
+def assign_order_item_batches(
+    order_id: str,
+    payload: OrderBatchAssignRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Allows the pharmacy store owner to explicitly assign, verify, or multi-split
+    physical medicine batches for an order item prior to / upon dispensing.
+    Directly updates the order items snapshot in real time.
+    """
+    order = db.query(OrderModel).filter(OrderModel.order_id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found.")
+
+    try:
+        items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+    except Exception:
+        items = []
+
+    if payload.item_index < 0 or payload.item_index >= len(items):
+        raise HTTPException(status_code=400, detail="Invalid item index.")
+
+    target_item = items[payload.item_index]
+    if payload.batch_allocations is not None:
+        target_item["batch_allocations"] = [b.dict() for b in payload.batch_allocations]
+    if payload.batch_number is not None:
+        target_item["batch_number"] = payload.batch_number.strip()
+    if payload.expiry_date is not None:
+        target_item["expiry_date"] = payload.expiry_date.strip()
+    if payload.mrp is not None:
+        target_item["mrp"] = round(float(payload.mrp), 2)
+    if payload.secondary_batch_number is not None:
+        target_item["secondary_batch_number"] = payload.secondary_batch_number.strip()
+    if payload.secondary_expiry_date is not None:
+        target_item["secondary_expiry_date"] = payload.secondary_expiry_date.strip()
+    if payload.secondary_mrp is not None:
+        target_item["secondary_mrp"] = round(float(payload.secondary_mrp), 2)
+
+    order.items = json.dumps(items)
+    db.commit()
+    db.refresh(order)
+    return {"success": True, "message": "Batch allocation updated in real time.", "order": order.to_dict()}
 
 
 # ==============================================================================
