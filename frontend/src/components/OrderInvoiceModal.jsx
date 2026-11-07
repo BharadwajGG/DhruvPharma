@@ -184,6 +184,11 @@ export default function OrderInvoiceModal({ order, isOpen, onClose }) {
                 const taxable = Number((totalAmt / 1.05).toFixed(2))
                 const gst = Number((totalAmt - taxable).toFixed(2))
 
+                const origMrp = Number(item.original_mrp || item.originalMrp || baseMrp)
+                if (baseMrp > origMrp) {
+                    priceLockSavings += Number(((baseMrp - origMrp) * totalQty).toFixed(2))
+                }
+
                 lines.push({
                     sr: lines.length + 1,
                     itemName,

@@ -3395,11 +3395,15 @@ def freeze_order_invoice_snapshot(order: OrderModel, db: Session, force_rebuild:
             total_mrp_sum += (mrp_total_1 + mrp_total_2)
             total_discount_sum += (disc_1 + disc_2)
         else:
+            orig_mrp = float(item.get("original_mrp") or base_mrp)
             mrp_total = round(base_mrp * total_qty, 2)
             total_amt = round(unit_selling_price * total_qty, 2)
             disc = round(max(0.0, mrp_total - total_amt), 2)
             taxable = round(total_amt / 1.05, 2)
             gst_amt = round(total_amt - taxable, 2)
+
+            if base_mrp > orig_mrp:
+                price_lock_savings += round((base_mrp - orig_mrp) * total_qty, 2)
 
             invoice_lines.append({
                 "sr": len(invoice_lines) + 1,
@@ -3563,7 +3567,10 @@ def assign_order_item_batches(
     if payload.expiry_date is not None:
         target_item["expiry_date"] = payload.expiry_date.strip()
     if payload.mrp is not None:
-        target_item["mrp"] = round(float(payload.mrp), 2)
+        new_mrp = round(float(payload.mrp), 2)
+        if "original_mrp" not in target_item and target_item.get("mrp"):
+            target_item["original_mrp"] = float(target_item.get("mrp"))
+        target_item["mrp"] = new_mrp
     if payload.secondary_batch_number is not None:
         target_item["secondary_batch_number"] = payload.secondary_batch_number.strip()
     if payload.secondary_expiry_date is not None:
