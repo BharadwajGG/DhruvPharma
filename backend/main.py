@@ -591,6 +591,13 @@ async def update_order_status(
         old_status = (order.status or "").lower()
         order.status = status_lower
 
+        # ── Freeze Immutable Tax Invoice Snapshot on Confirmation/Dispatch/Delivery ──
+        if status_lower in ["confirmed", "dispatched", "delivered"] and not order.invoice_snapshot:
+            try:
+                freeze_order_invoice_snapshot(order, db, force_rebuild=False)
+            except Exception as e:
+                print("Error freezing invoice snapshot on status update:", e)
+
         # ── Stock Management on Dispatch / Delivery ──
         if status_lower in ["dispatched", "delivered"] and not order.stock_deducted:
             try:
@@ -3159,6 +3166,13 @@ async def bulk_update_order_status(
         if order:
             order.status = st
 
+            # Freeze Tax Invoice snapshot immutably on confirmation, dispatch, or delivery if not already frozen
+            if st in ["confirmed", "dispatched", "delivered"] and not order.invoice_snapshot:
+                try:
+                    freeze_order_invoice_snapshot(order, db, force_rebuild=False)
+                except Exception as e:
+                    print("Bulk invoice freeze error:", e)
+
             # Handle stock deduction on bulk dispatch
             if st in ["dispatched", "delivered"] and not order.stock_deducted:
                 try:
@@ -3224,25 +3238,31 @@ async def bulk_update_order_status(
 
 
 # ==============================================================================
-# 10. ORDER INVOICE DATA API (/api/orders/{order_id}/invoice)
+# 10. ORDER INVOICE DATA API (/api/orders/{order_id}/invoice) & IMMUTABLE SNAPSHOTS
 # ==============================================================================
 
-@app.get("/api/orders/{order_id}/invoice")
-def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
-    order = db.query(OrderModel).filter(OrderModel.order_id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found.")
+def freeze_order_invoice_snapshot(order: OrderModel, db: Session, force_rebuild: bool = False) -> Dict[str, Any]:
+    """
+    Builds and permanently freezes an immutable Tax Invoice snapshot for the given order.
+    Once saved to order.invoice_snapshot, any subsequent master inventory edits, restocks,
+    or batch changes will NEVER mutate or affect this invoice.
+    """
+    if not force_rebuild and order.invoice_snapshot:
+        try:
+            existing = json.loads(order.invoice_snapshot)
+            if existing and existing.get("invoiceLines"):
+                return existing
+        except Exception:
+            pass
 
-    o_dict = order.to_dict()
-    raw_items = o_dict.get("items", [])
-
+    raw_items = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
     invoice_lines = []
     total_mrp_sum = 0.0
     total_discount_sum = 0.0
     price_lock_savings = 0.0
 
     for idx, item in enumerate(raw_items, start=1):
-        # Look up real-time Medicine record from database
+        # Look up Medicine record from database if item snapshot needs enrichment
         med_id = item.get("id")
         med = None
         if med_id:
@@ -3257,7 +3277,7 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
         marketer = (med.manufacturer if med and med.manufacturer else (item.get("brand") or item.get("manufacturer") or "Dhruv Pharma")).strip()
         hsn = (med.hsn_code if med and med.hsn_code else item.get("hsn_code") or "30049099").strip()
 
-        base_mrp = float(med.mrp if med and med.mrp else item.get("mrp") or item.get("price") or 0.0)
+        base_mrp = float(item.get("mrp") or (med.mrp if med else 0.0) or item.get("price") or 0.0)
         unit_selling_price = float(item.get("price") or item.get("sellingPrice") or (med.selling_price if med else base_mrp))
         if base_mrp <= 0:
             base_mrp = unit_selling_price
@@ -3306,7 +3326,7 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
                 total_discount_sum += disc
             continue
 
-        # 2. Real-time batch check from order snapshot or medicine catalog (strictly real, NO random generators)
+        # 2. Real-time batch check from order snapshot or medicine catalog
         batch_no = (item.get("batch_number") or item.get("batchNo") or (med.batch_number if med else "") or "").strip()
         exp_date = (item.get("expiry_date") or item.get("expDate") or (med.expiry_date if med else "") or "").strip()
 
@@ -3406,13 +3426,7 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
     cgst_total = round(tot_gst / 2.0, 2)
     sgst_total = round(tot_gst - cgst_total, 2)
 
-    is_paid = (
-        str(order.payment_status or "").strip().lower() == "paid"
-        or str(order.status or "").strip().lower() == "delivered"
-    )
-    is_delivered = str(order.status or "").strip().lower() == "delivered"
-
-    invoice_data = {
+    snapshot = {
         "invoiceNumber": f"INV-{order.order_id}",
         "invoiceDate": order.created_at.strftime("%d %b %Y") if order.created_at else datetime.now().strftime("%d %b %Y"),
         "placeOfSupply": "MH (27)",
@@ -3428,8 +3442,6 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
             "fssai": "11525013000013",
             "cin": "U47720MH2024PTC434474",
         },
-        "order": o_dict,
-        "items": raw_items,
         "invoiceLines": invoice_lines,
         "taxSummary": {
             "taxableValue": tot_taxable,
@@ -3444,18 +3456,60 @@ def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
         "deliveryFee": order.delivery_fee,
         "discount": order.discount,
         "totalAmount": order.total_amount,
-        "paymentMethod": order.payment_method,
-        "paymentStatus": "paid" if is_paid else (order.payment_status or "pending"),
-        "isPaid": is_paid,
-        "isDelivered": is_delivered,
-        "digitalSignature": {
-            "name": "Devendra Chavan",
-            "role": "Registered Pharmacist",
-            "regNo": "MH-28491",
-            "license": "FDA Form 20B/21B",
-            "dispensed": is_delivered,
-            "timestamp": order.updated_at.strftime("%d/%m/%Y, %I:%M %p") if order.updated_at else datetime.now().strftime("%d/%m/%Y"),
-        }
+        "lockedAt": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    # Permanently freeze into SQLite if confirmed, dispatched, delivered, or force_rebuild
+    st = (order.status or "").lower()
+    if force_rebuild or st in ["confirmed", "dispatched", "delivered"]:
+        order.invoice_snapshot = json.dumps(snapshot)
+        db.commit()
+
+    return snapshot
+
+
+@app.get("/api/orders/{order_id}/invoice")
+def get_order_invoice(order_id: str, db: Session = Depends(get_db)):
+    order = db.query(OrderModel).filter(OrderModel.order_id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found.")
+
+    st = (order.status or "").lower()
+    is_paid = (
+        str(order.payment_status or "").strip().lower() == "paid"
+        or st == "delivered"
+    )
+    is_delivered = st == "delivered"
+
+    # IMMUTABLE SNAPSHOT CHECK:
+    # If the order already has an immutable frozen snapshot, load it directly!
+    # It will NEVER query MedicineModel or newly modified batch numbers in inventory!
+    snapshot = None
+    if order.invoice_snapshot:
+        try:
+            snapshot = json.loads(order.invoice_snapshot)
+        except Exception:
+            snapshot = None
+
+    if not snapshot:
+        should_freeze = st in ["confirmed", "dispatched", "delivered"]
+        snapshot = freeze_order_invoice_snapshot(order, db, force_rebuild=should_freeze)
+
+    invoice_data = dict(snapshot)
+    invoice_data["order"] = order.to_dict()
+    invoice_data["items"] = json.loads(order.items) if isinstance(order.items, str) else (order.items or [])
+    invoice_data["paymentMethod"] = order.payment_method
+    invoice_data["paymentStatus"] = "paid" if is_paid else (order.payment_status or "pending")
+    invoice_data["isPaid"] = is_paid
+    invoice_data["isDelivered"] = is_delivered
+    invoice_data["isLocked"] = bool(order.invoice_snapshot) or st in ["confirmed", "dispatched", "delivered"]
+    invoice_data["digitalSignature"] = {
+        "name": "Devendra Chavan",
+        "role": "Registered Pharmacist",
+        "regNo": "MH-28491",
+        "license": "FDA Form 20B/21B",
+        "dispensed": is_delivered,
+        "timestamp": order.updated_at.strftime("%d/%m/%Y, %I:%M %p") if order.updated_at else datetime.now().strftime("%d/%m/%Y"),
     }
     return invoice_data
 
@@ -3518,9 +3572,16 @@ def assign_order_item_batches(
         target_item["secondary_mrp"] = round(float(payload.secondary_mrp), 2)
 
     order.items = json.dumps(items)
+    # Re-freeze the immutable snapshot with the newly assigned batch allocations
+    updated_snapshot = freeze_order_invoice_snapshot(order, db, force_rebuild=True)
     db.commit()
     db.refresh(order)
-    return {"success": True, "message": "Batch allocation updated in real time.", "order": order.to_dict()}
+    return {
+        "success": True,
+        "message": "Batch allocation updated in real time.",
+        "order": order.to_dict(),
+        "invoiceSnapshot": updated_snapshot
+    }
 
 
 # ==============================================================================

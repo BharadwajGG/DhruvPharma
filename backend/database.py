@@ -161,6 +161,7 @@ class OrderModel(Base):
     cancelled_by = Column(String(50), nullable=True, default="")  # "admin" or "customer"
     cancellation_reason = Column(Text, nullable=True, default="")
     notes = Column(Text, nullable=True, default="")
+    invoice_snapshot = Column(Text, nullable=True, default="")  # Permanent immutable tax invoice snapshot
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -169,6 +170,13 @@ class OrderModel(Base):
             parsed_items = json.loads(self.items)
         except Exception:
             parsed_items = []
+
+        parsed_snapshot = None
+        if self.invoice_snapshot:
+            try:
+                parsed_snapshot = json.loads(self.invoice_snapshot)
+            except Exception:
+                parsed_snapshot = None
 
         return {
             "id": self.order_id,
@@ -202,6 +210,8 @@ class OrderModel(Base):
             "cancelledBy": getattr(self, "cancelled_by", "") or "",
             "cancellationReason": getattr(self, "cancellation_reason", "") or "",
             "notes": self.notes or "",
+            "invoiceSnapshot": parsed_snapshot,
+            "isInvoiceLocked": bool(parsed_snapshot),
             "date": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
             "createdAt": self.created_at.strftime("%d %b %Y, %I:%M %p") if self.created_at else "",
         }
@@ -428,6 +438,12 @@ def init_db():
                 conn.connection.commit()
             if med_cols and "secondary_stock" not in med_cols:
                 cursor.execute("ALTER TABLE medicines ADD COLUMN secondary_stock INTEGER DEFAULT 0")
+                conn.connection.commit()
+
+            cursor.execute("PRAGMA table_info(orders)")
+            order_cols = [col[1] for col in cursor.fetchall()]
+            if order_cols and "invoice_snapshot" not in order_cols:
+                cursor.execute("ALTER TABLE orders ADD COLUMN invoice_snapshot TEXT DEFAULT ''")
                 conn.connection.commit()
 
             cursor.execute("PRAGMA table_info(coupons)")
