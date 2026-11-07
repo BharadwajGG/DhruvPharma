@@ -184,7 +184,7 @@ export default function MedicineDetailPage() {
     const perUnitPrice = pack.unitCount > 1 && price > 0 ? (price / pack.unitCount).toFixed(2) : null
 
     return (
-        <div className="bg-gray-50 min-h-screen py-8 px-4">
+        <div className="bg-gray-50 min-h-screen py-6 md:py-8 px-3 sm:px-4 pb-28 md:pb-8">
             <div className="max-w-5xl mx-auto">
 
                 {/* Breadcrumb */}
@@ -685,6 +685,68 @@ export default function MedicineDetailPage() {
                     </div>
                 </div>
             )}
+
+            {/* ── Mobile Sticky Bottom Action Bar (App-like 1-tap Cart) ── */}
+            <div className="md:hidden fixed bottom-14 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-3.5 py-2.5 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex flex-col">
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-black text-slate-900 font-mono">
+                            ₹{medicine.price?.toFixed(2)}
+                        </span>
+                        {hasDiscount && (
+                            <span className="text-xs text-slate-400 line-through font-mono">
+                                ₹{medicine.mrp?.toFixed(2)}
+                            </span>
+                        )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium">
+                        {pack.packLabel}
+                    </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    {/* Compact Quantity Stepper */}
+                    <div className="flex items-center border border-slate-200 rounded-lg bg-slate-50 p-0.5">
+                        <button
+                            type="button"
+                            onClick={() => setQty((q) => Math.max(1, q - 1))}
+                            className="w-7 h-7 flex items-center justify-center rounded text-slate-600 active:bg-white text-xs font-bold"
+                            aria-label="Decrease quantity"
+                        >
+                            <Minus size={12} />
+                        </button>
+                        <span className="w-6 text-center text-xs font-bold text-slate-800">{qty}</span>
+                        <button
+                            type="button"
+                            onClick={() => setQty((q) => q + 1)}
+                            className="w-7 h-7 flex items-center justify-center rounded text-slate-600 active:bg-white text-xs font-bold"
+                            aria-label="Increase quantity"
+                        >
+                            <Plus size={12} />
+                        </button>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={handleAddToCart}
+                        className={`flex items-center justify-center gap-1.5 font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer ${
+                            justAdded
+                                ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+                                : 'bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-blue-600/30'
+                        }`}
+                    >
+                        {justAdded ? (
+                            <>
+                                <Check size={14} /> Added!
+                            </>
+                        ) : (
+                            <>
+                                <ShoppingCart size={14} /> Add to Cart
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
         </div>
     )
 }

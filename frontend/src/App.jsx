@@ -11,6 +11,7 @@ import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import MobileBottomNav from './components/MobileBottomNav'
 import OrderViaCallWidget from './components/OrderViaCallWidget'
+import InstallAppBanner from './components/InstallAppBanner'
 import HomePage from './pages/HomePage'
 import ScrollToTop from './components/ScrollToTop'
 
@@ -50,6 +51,7 @@ function CustomerLayout() {
                 <Outlet />
             </main>
             <OrderViaCallWidget />
+            <InstallAppBanner />
             <MobileBottomNav />
             <Footer />
         </div>

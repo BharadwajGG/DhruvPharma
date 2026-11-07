@@ -1,18 +1,60 @@
 {
-  "name": "Dhruv Pharma & Healthcare",
+  "name": "Dhruv Pharma — Online Medicine Delivery",
   "short_name": "Dhruv Pharma",
-  "description": "Order genuine medicines online with doorstep delivery across Nandurbar and 7 authorized hubs.",
+  "description": "Order 100% genuine medicines online with fast doorstep delivery across Nandurbar and 7 authorized hubs.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#2563eb",
-  "orientation": "portrait-primary",
+  "theme_color": "#1d4ed8",
+  "orientation": "portrait",
   "icons": [
     {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
       "src": "/favicon.svg",
-      "sizes": "192x192 512x512",
+      "sizes": "512x512",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Search Medicines",
+      "short_name": "Search",
+      "description": "Find genuine medicines and healthcare essentials",
+      "url": "/medicines",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Upload Prescription",
+      "short_name": "Upload Rx",
+      "description": "Upload doctor prescription for quick order processing",
+      "url": "/prescription",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Track My Orders",
+      "short_name": "My Orders",
+      "description": "View live delivery status and tax invoices",
+      "url": "/my-orders",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ],
   "categories": ["medical", "shopping", "health"]

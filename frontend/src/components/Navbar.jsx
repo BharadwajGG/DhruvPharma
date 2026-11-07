@@ -28,6 +28,8 @@ import {
     Sparkles,
     CheckCircle2,
     Loader2,
+    Download,
+    Smartphone,
 } from 'lucide-react'
 
 const NAV_LINKS = [
@@ -1049,6 +1051,21 @@ export default function Navbar() {
                                 </Link>
                             </li>
                         ))}
+
+                        {/* Install Dhruv Pharma Mobile App Button */}
+                        <li className="px-4 pt-3 pb-2 border-t border-slate-100 mt-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMenuOpen(false)
+                                    window.dispatchEvent(new CustomEvent('trigger-pwa-install'))
+                                }}
+                                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-sky-600 active:from-blue-700 active:to-sky-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-md shadow-blue-500/20 active:scale-98 transition-all cursor-pointer"
+                            >
+                                <Download size={15} />
+                                <span>Install Dhruv Pharma App</span>
+                            </button>
+                        </li>
                     </ul>
                 </div>
             )}

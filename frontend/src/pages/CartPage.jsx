@@ -847,6 +847,8 @@ export default function CartPage() {
                                             </label>
                                             <input
                                                 type="tel"
+                                                inputMode="numeric"
+                                                autoComplete="tel"
                                                 placeholder="10-digit mobile"
                                                 value={formData.phone}
                                                 onChange={(e) => {
@@ -857,7 +859,7 @@ export default function CartPage() {
                                                         localStorage.setItem('dhruv_user_phone', digits)
                                                     }
                                                 }}
-                                                className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 ${
+                                                className={`w-full px-3 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-base sm:text-xs ${
                                                     formErrors.phone ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-blue-500'
                                                 }`}
                                             />
@@ -872,10 +874,11 @@ export default function CartPage() {
                                             </label>
                                             <input
                                                 type="email"
+                                                autoComplete="email"
                                                 placeholder="name@email.com"
                                                 value={formData.email}
                                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 text-base sm:text-xs"
                                             />
                                         </div>
                                     </div>
@@ -887,6 +890,8 @@ export default function CartPage() {
                                             </label>
                                             <input
                                                 type="text"
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
                                                 maxLength={6}
                                                 placeholder="e.g. 425412"
                                                 value={formData.pincode}

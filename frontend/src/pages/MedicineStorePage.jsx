@@ -786,14 +786,14 @@ export default function MedicineStorePage() {
                     </div>
                 </div>
 
-                {/* ── Quick Filter Chips ── */}
-                <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                    <span className="text-slate-400 font-bold text-[11px] uppercase tracking-wider mr-1">Quick Filters:</span>
+                {/* ── Quick Filter Chips (Horizontal Swipe on Mobile) ── */}
+                <div className="flex items-center gap-2 pt-1 text-xs overflow-x-auto scrollbar-none pb-1.5 -mx-3 px-3 sm:mx-0 sm:px-0 sm:flex-wrap">
+                    <span className="text-slate-400 font-bold text-[11px] uppercase tracking-wider mr-1 shrink-0">Quick Filters:</span>
 
                     <button
                         type="button"
                         onClick={() => setRxFilter(rxFilter === 'otc' ? 'all' : 'otc')}
-                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border ${
+                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border shrink-0 text-xs ${
                             rxFilter === 'otc'
                                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                                 : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
@@ -805,31 +805,31 @@ export default function MedicineStorePage() {
                     <button
                         type="button"
                         onClick={() => setRxFilter(rxFilter === 'rx' ? 'all' : 'rx')}
-                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border ${
+                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border shrink-0 text-xs ${
                             rxFilter === 'rx'
                                 ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
                                 : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
                         }`}
                     >
-                        📄 Prescription Needed (Rx)
+                        📄 Prescription (Rx)
                     </button>
 
                     <button
                         type="button"
                         onClick={() => setDiscountOnly(!discountOnly)}
-                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border ${
+                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border shrink-0 text-xs ${
                             discountOnly
                                 ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
                                 : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
                         }`}
                     >
-                        🏷️ Big Savings (≥15% OFF)
+                        🏷️ Big Savings (≥15%)
                     </button>
 
                     <button
                         type="button"
                         onClick={() => setInStockOnly(!inStockOnly)}
-                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border ${
+                        className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer border shrink-0 text-xs ${
                             inStockOnly
                                 ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                                 : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
@@ -842,7 +842,7 @@ export default function MedicineStorePage() {
                         <button
                             type="button"
                             onClick={handleResetFilters}
-                            className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer shrink-0 text-xs"
                         >
                             <RotateCcw size={12} />
                             <span>Reset Filters</span>
